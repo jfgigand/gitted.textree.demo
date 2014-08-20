@@ -176,3 +176,62 @@ nef_command_merge_env() {
         . $_path
     fi
 }
+
+# Usage: nef_show_help [command]
+nef_show_help() {
+    local _command="$1"
+    local _keep_showing=0
+    local _prefix1="usage: $nef_command_callname"
+    local _prefix2=$(echo "$_prefix1" | sed "s/./ /g")
+
+    if test -z "$_command"; then
+        cmd_description=$(cat $(which "$0") | head -n 3 | tail -n 1 | sed -r 's/[^-]*- ?//')
+        cat <<-EOF
+	$nef_command_callname - $cmd_description
+
+	$_prefix1 [--verbose] [--debug-verbose] [--help]
+	$_prefix2 <command> [<args>]
+
+	EOF
+    fi
+    grep -E ^# "$(which "$0")" | (
+        while read; do
+            local _command_name=
+            local _line=$(echo "$REPLY" | sed -r 's/^# ?//')
+
+            if test "$_keep_showing" -ne 0; then
+                if echo "$REPLY" | grep -qE "^##"; then
+                    _keep_showing=0
+                    exit
+                else
+                    echo "$_line"
+                    continue
+                fi
+            fi
+            if echo "$_line" | grep -qE "^command:"; then
+                full=$(echo "$_line" | sed 's/^command: //')
+                _command_name=$(echo "$full" | sed 's/ .*//')
+                _command_args=$(echo "$full" | sed -r 's/^[^ ]+ //')
+
+                if test -n "$_command"; then
+                    if test "$_command" = "$_command_name"; then
+                        echo "usage: $nef_command_callname $_command $_command_args"
+                        [ $_usage -eq 0 ] && _keep_showing=1
+                    fi
+                else
+                    echo -e "    $_command_name\t$_command_args"
+                fi
+            fi
+            if echo "$REPLY" | grep -qE "^### "; then
+                if test -z "$_command"; then
+                    full=$(echo "$REPLY" | sed 's/^### //')
+                    echo
+                    echo "  $full"
+                    echo
+                fi
+            fi
+
+        done
+    )
+    echo
+}
