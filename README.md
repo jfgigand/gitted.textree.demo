@@ -23,8 +23,8 @@ What happens is:
   register (itself) as a GIT remote named _mycontainer_ using the
   _ext::_ protocol
 * _git push_ pushes the data to _glxc-client_ which:
-    * creates the LXC container _mycontainer_ with _lxc-start(1)_
-    * start the container
+    * creates the LXC container _mycontainer_ with _lxc-create(1)_
+    * start the container with _lxc-start(1)_
     * initialize the container (through sysconf)
     * run [/usr/bin/glxc](tree/usr/bin/glxc) _git-remote-command_
       inside the container, which does the rest:
