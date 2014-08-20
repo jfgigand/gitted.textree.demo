@@ -26,7 +26,7 @@ What happens is:
     * creates the LXC container _mycontainer_ with _lxc-start(1)_
     * start the container
     * initialize the container (through sysconf)
-    * run [tree/usr/bin/glxc](/usr/bin/glxc) _git-remote-command_
+    * run [/usr/bin/glxc](tree/usr/bin/glxc) _git-remote-command_
       inside the container, which does the rest:
         * export some machine state through into GIT commits
         * execute the requested git remote command (_git-receive-pack_
@@ -36,10 +36,10 @@ What happens is:
 
 Import/export is about:
 * MongoDB data:
-  [tree/usr/share/glxc/import/mongodb](PUSH) and
-  [tree/usr/share/glxc/export/mongodb](PULL) support
+  [PUSH](tree/usr/share/glxc/import/mongodb) and
+  [PULL](tree/usr/share/glxc/export/mongodb) support
 * PostgreSQL data:
-  [tree/usr/share/glxc/import/mongodb](PUSH) support
+  [PUSH](tree/usr/share/glxc/import/mongodb) support
 * MySQL data
 * Application data
 * ... anything a handler is defined as a script in
