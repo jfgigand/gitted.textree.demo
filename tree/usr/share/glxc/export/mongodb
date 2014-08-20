@@ -1,0 +1,72 @@
+#!/bin/bash
+#
+# GLXC EXPORT: MongoDB -> GIT files
+#
+#
+# GLXC_MONGODB_CSV_FIELDS
+
+. /usr/share/glxc/export.init.bash || exit 2
+
+[ -z "$GLXC_DATA_PATH" ] && nef_fatal "missing variable: GLXC_DATA_PATH"
+[ -z "$GLXC_MONGODB_DATABASE" ] && nef_fatal "missing variable: GLXC_MONGODB_DATABASE"
+
+# Allowed GLXC_MONGODB_FORMAT values: bson, json, csv
+[ -z "$GLXC_MONGODB_FORMAT" ] && GLXC_MONGODB_FORMAT=json
+
+state_ref=$(glxc_state_ref_name mongodb)
+
+if [ -n "$glxc_last_commit" ]; then
+    _git read-tree $glxc_last_commit
+fi
+
+case "$GLXC_MONGODB_FORMAT" in
+    json|csv)
+        collections=$(echo -e "use ${GLXC_MONGODB_DATABASE}\nshow collections" \
+            | mongo --quiet | head -n -1 | tail -n +2)
+        mkdir -p $GIT_WORK_TREE/$GLXC_DATA_PATH
+        _opts=
+        if [ $GLXC_MONGODB_FORMAT = csv ]; then
+            [ -n "$GLXC_MONGODB_CSV_FIELDS" ] \
+                || nef_fatal "GLXC_MONGODB_CSV_FIELDS is mandatory when GLXC_MONGODB_FORMAT=csv"
+            _opts="--csv $GLXC_MONGODB_CSV_FIELDS"
+        fi
+        for collection in $collections; do
+            mongoexport --db $GLXC_MONGODB_DATABASE --collection $collection $_opts\
+                >$GIT_WORK_TREE/$GLXC_DATA_PATH/$collection.json
+        done
+        ;;
+    bson)
+        mongodump --db $GLXC_MONGODB_DATABASE --out /tmp/mongodb_dump >&2 || nef_fatal "MongoDB export failed"
+        mv /tmp/mongodb_dump/$GLXC_MONGODB_DATABASE $GIT_WORK_TREE/$GLXC_DATA_PATH
+        ;;
+    *)
+        nef_fatal "invalid value for GLXC_MONGODB_FORMAT: $GLXC_MONGODB_FORMAT"
+        ;;
+esac
+
+_git update-index --add $GIT_WORK_TREE/$GLXC_DATA_PATH/*
+
+if [ -n "$glxc_last_commit" ]; then
+    git diff-index --cached --quiet $glxc_last_commit
+    unchanged=$?
+else
+    unchanged=1
+fi
+
+if [ $unchanged -eq 0 ]; then
+    nef_log "No change in MongoDB data. Nothing to commit."
+else
+    tree=$(_git write-tree)
+
+    if [ -n "$glxc_last_commit" ]; then
+        parent_opt="-p $glxc_last_commit"
+    fi
+    commit=$(echo "Auto commit for MongoDB on LXC container $(cat /etc/hostname) at $(date)" \
+        | _git commit-tree $tree $parent_opt)
+
+    nef_log "Committed MongoDB update as $commit. Updating ref..."
+
+    message="after MongoDB sync commit"
+    git update-ref -m "$message" refs/heads/$GLXC_GIT_BRANCH $commit $glxc_last_commit
+    git update-ref -m "$message" $state_ref $commit $glxc_last_commit
+fi

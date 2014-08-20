@@ -1,0 +1,51 @@
+#!/bin/bash
+#
+# PostgreSQL data import
+#
+. /usr/share/glxc/import.init.bash || exit 2
+
+[ -z "$GLXC_DATA_PATH" ] && nef_fatal "missing variable: GLXC_DATA_PATH"
+[ -z "$GLXC_POSTGRESQL_DATABASE" ] && nef_fatal "missing variable: GLXC_POSTGRESQL_DATABASE"
+
+state_ref=$(glxc_state_ref_name postgresql)
+
+if [ "$(git ls-tree $state_ref $GLXC_DATA_PATH)" \
+    != "$(git ls-tree $glxc_new_commit $GLXC_DATA_PATH)" ]; then
+
+    nef_log "PostgreSQL data has changed. Importing..."
+
+    uuid=$(git ls-tree $glxc_new_commit $GLXC_DATA_PATH/schema.sql | sed -r 's/.* blob ([^\t]+).*/\1/')
+    if [ -n "$uuid" ]; then
+        if echo '\l' | sudo -u postgres psql | grep -q $GLXC_POSTGRESQL_DATABASE; then
+            nef_log "Database 'aire' exists: dropping..."
+            service apache2 restart >&2
+            echo "DROP DATABASE $GLXC_POSTGRESQL_DATABASE" | sudo -u postgres psql
+        fi
+        echo "CREATE DATABASE $GLXC_POSTGRESQL_DATABASE TEMPLATE template0 OWNER aire ENCODING 'UTF-8';" | sudo -u postgres psql
+
+        if [ $? -eq 0 ]; then
+            git cat-file -p $uuid | sudo -u postgres psql -d $GLXC_POSTGRESQL_DATABASE | nef_log_pipe "SQL as <postgres>"
+            nef_log "PostgreSQL database schema has been imported with success. Now importing data..."
+
+            git ls-tree $glxc_new_commit $GLXC_DATA_PATH/ | (
+                while read mode type uuid path; do
+                    file=$(basename $path)
+                    if echo "$file" | grep -q '^data\..*\.sql$'; then
+                        nef_log "Importing into PostgreSQL: $path"
+                        git cat-file -p $uuid | sudo -u aire psql -d $GLXC_POSTGRESQL_DATABASE | nef_log_pipe "SQL as <aire>"
+                    fi
+                done
+            )
+
+            nef_log "PostgreSQL import done."
+            git update-ref -m "import PostgreSQL data from $glxc_new_commit" $state_ref $glxc_new_commit
+        else
+            nef_log "command 'CREATE DATABASE' failed. Not importing PostgreSQL data."
+        fi
+    else
+        nef_log "schema.sql missing, not importing."
+    fi
+
+else
+    nef_log "PostgreSQL data has not changed."
+fi

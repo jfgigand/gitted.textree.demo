@@ -1,0 +1,41 @@
+#!/bin/bash
+#
+# GLXC IMPORT: GIT files -> MongoDB
+#
+# To clear the internal state, use:
+#   echo -e "use ${GLXC_MONGODB_DATABASE}\ndb.dropDatabase()" | mongo
+
+. /usr/share/glxc/import.init.bash || exit 2
+
+[ -z "$GLXC_DATA_PATH" ] && nef_fatal "missing variable: GLXC_DATA_PATH"
+[ -z "$GLXC_MONGODB_DATABASE" ] && nef_fatal "missing variable: GLXC_MONGODB_DATABASE"
+
+state_ref=$(glxc_state_ref_name mongodb)
+
+if [ "$(git ls-tree $state_ref $GLXC_DATA_PATH)" \
+    != "$(git ls-tree $glxc_new_commit $GLXC_DATA_PATH)" ]; then
+
+    nef_log "MongoDB data has changed. Dropping existing DB and importing new one..."
+    # TODO: update differences only, by diff analysis
+    echo -e "use ${GLXC_MONGODB_DATABASE}\ndb.dropDatabase()" | mongo
+
+    git ls-tree $glxc_new_commit $GLXC_DATA_PATH/ | (
+        while read mode type uuid path; do
+            file=$(basename $path)
+            collection=$(basename $file .bson)
+            if [ "$collection" != "$file" ]; then
+                nef_log "Importing into MongoDB: $path"
+                git cat-file -p $uuid >/tmp/data.bson
+                nef_cmd mongorestore -d $GLXC_MONGODB_DATABASE -c $collection /tmp/data.bson
+                # | nef_log_pipe -v "mongorestore:"
+                rm -f /tmp/data.bson
+            else
+                nef_log "Ignoring file: $path"
+            fi
+        done
+    )
+    nef_log "MongoDB import done."
+    _git update-ref -m "import MongoDB data from $glxc_new_commit" $state_ref $glxc_new_commit
+else
+    nef_log "MongoDB data has not changed."
+fi
