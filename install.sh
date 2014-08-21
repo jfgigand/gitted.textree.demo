@@ -2,7 +2,6 @@
 
 . /usr/lib/sysconf.base/common.sh
 
-
 # Fix /etc/host with our hostname
 # (and avoid Apache's "apr_sockaddr_info_get() failed" error)
 hostname=$(hostname)
