@@ -253,7 +253,8 @@ update_system_from_conf()
     pwd
     [ -r ./install.sh ] && {
 	echo "*** Executing updates for config: $config"
-	. ./install.sh
+
+        . ./install.sh
     }
 }
 
@@ -324,6 +325,8 @@ if test "$confpath" = ""; then
     #confpath=`dirname "$self"`
     confpath=/sysconf
 fi
+
+PATH=/sbin:/usr/sbin:$PATH
 
 # Options
 config=actual
