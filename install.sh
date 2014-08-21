@@ -11,6 +11,7 @@ grep -q "^$hostname " /etc/hosts \
     || echo "$ip $hostname" >>/etc/hosts
 
 # because the sources.list installed by lxc download template doesn't work well
+echo "Fixing packages..."
 echo "deb http://ftp.fr.debian.org/debian/ wheezy main contrib" >/etc/apt/sources.list
 apt-get update
 
