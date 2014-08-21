@@ -8,9 +8,13 @@
 [ -z "$GLXC_POSTGRESQL_DATABASE" ] && nef_fatal "missing variable: GLXC_POSTGRESQL_DATABASE"
 
 state_ref=$(glxc_state_ref_name postgresql)
+state_commit=$(git show-ref -s $state_ref)
+state_tree=
+if [ -n "$state_commit" ]; then
+    state_tree="$(git ls-tree $state_ref $GLXC_DATA_PATH)"
+fi
 
-if [ "$(git ls-tree $state_ref $GLXC_DATA_PATH)" \
-    != "$(git ls-tree $glxc_new_commit $GLXC_DATA_PATH)" ]; then
+if [ "$state_tree" != "$(git ls-tree $glxc_new_commit $GLXC_DATA_PATH)" ]; then
 
     nef_log "PostgreSQL data has changed. Importing..."
 
@@ -47,5 +51,5 @@ if [ "$(git ls-tree $state_ref $GLXC_DATA_PATH)" \
     fi
 
 else
-    nef_log "PostgreSQL data has not changed."
+    nef_log "no change for path: $GLXC_DATA_PATH"
 fi

@@ -16,7 +16,7 @@
 state_ref=$(glxc_state_ref_name mongodb)
 
 if [ -n "$glxc_last_commit" ]; then
-    _git read-tree $glxc_last_commit
+    git read-tree $glxc_last_commit || nef_fatal "git read-tree failed"
 fi
 
 case "$GLXC_MONGODB_FORMAT" in
@@ -36,7 +36,9 @@ case "$GLXC_MONGODB_FORMAT" in
         done
         ;;
     bson)
-        mongodump --db $GLXC_MONGODB_DATABASE --out /tmp/mongodb_dump >&2 || nef_fatal "MongoDB export failed"
+        mongodump --db $GLXC_MONGODB_DATABASE --out /tmp/mongodb_dump 2>&1 \
+            | nef_log_pipe "mongodump:" || nef_fatal "MongoDB export failed"
+
         mv /tmp/mongodb_dump/$GLXC_MONGODB_DATABASE $GIT_WORK_TREE/$GLXC_DATA_PATH
         ;;
     *)
@@ -44,26 +46,31 @@ case "$GLXC_MONGODB_FORMAT" in
         ;;
 esac
 
-_git update-index --add $GIT_WORK_TREE/$GLXC_DATA_PATH/*
+unchanged=0
 
-if [ -n "$glxc_last_commit" ]; then
-    git diff-index --cached --quiet $glxc_last_commit
-    unchanged=$?
-else
-    unchanged=1
+if [ $(ls $GIT_WORK_TREE/$GLXC_DATA_PATH/ | wc -l) -ne 0 ]; then
+    git update-index --add $GIT_WORK_TREE/$GLXC_DATA_PATH/* || nef_fatal "git update-index failed"
+
+    if [ -n "$glxc_last_commit" ]; then
+        git diff-index --cached --quiet $glxc_last_commit
+        unchanged=$?
+    else
+        unchanged=1
+    fi
 fi
 
 if [ $unchanged -eq 0 ]; then
     nef_log "No change in MongoDB data. Nothing to commit."
 else
-    tree=$(_git write-tree)
+    tree=$(git write-tree)
 
     if [ -n "$glxc_last_commit" ]; then
         parent_opt="-p $glxc_last_commit"
     fi
     commit=$(echo "Auto commit for MongoDB on LXC container $(cat /etc/hostname) at $(date)" \
-        | _git commit-tree $tree $parent_opt)
+        | git commit-tree $tree $parent_opt)
 
+    [ -n "$commit" ] || nef_fatal "git commit-tree failed"
     nef_log "Committed MongoDB update as $commit. Updating ref..."
 
     message="after MongoDB sync commit"

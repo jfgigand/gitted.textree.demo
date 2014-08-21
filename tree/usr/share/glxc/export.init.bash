@@ -15,7 +15,7 @@ glxc_state_ref_name()
     echo refs/lxc-state/$GLXC_GIT_BRANCH/$name
 }
 
-glxc_last_commit=$(_git show-ref -s refs/heads/$GLXC_GIT_BRANCH)
+glxc_last_commit=$(git show-ref -s refs/heads/$GLXC_GIT_BRANCH)
 
 export GIT_WORK_TREE=/tmp/git-transform-work-tree
 export GIT_INDEX_FILE=/tmp/git-transform-index
