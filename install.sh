@@ -12,7 +12,9 @@ grep -q "^$hostname " /etc/hosts \
 
 # because the sources.list installed by lxc download template doesn't work well
 echo "deb http://ftp.fr.debian.org/debian/ wheezy main contrib" >/etc/apt/sources.list
+apt-get update
 
+sysconf_apt-get install --yes --no-upgrade git curl
 
 # Setup the GIT repository, heart of glxc
 in_private_repos=/local.repository.git
