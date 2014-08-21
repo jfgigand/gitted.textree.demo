@@ -14,7 +14,7 @@ grep -q "^$hostname " /etc/hosts \
 echo "Fixing packages..."
 echo "deb http://ftp.fr.debian.org/debian/ wheezy main contrib" >/etc/apt/sources.list
 apt-get update
-
+echo ...
 sysconf_apt-get install --yes --no-upgrade git curl
 
 # Setup the GIT repository, heart of glxc
