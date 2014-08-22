@@ -19,6 +19,8 @@
 #   . $NEF_DIR_USR/share/nef-common/shell-command
 #
 
+[ -z "$nef_command_name" ] && nef_command_name="$0"
+
 ######################################################################
 # SETTINGS
 
