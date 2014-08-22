@@ -27,11 +27,11 @@ if [ -d /sysconf/.git ]; then
             # Clone a non-bare repository our of the central local one, to please git-subtree
             temp_branch=$(date +T%s)
             clone_path=/tmp/$temp_branch
-            git clone $local_git_dir $clone_path | nef_log_pipe "git-clone:" || nef_fatal "git clone failed"
+            git clone $local_git_dir $clone_path 2>&1 | nef_log_pipe "git-clone:" || nef_fatal "git clone failed"
             cd $clone_path
 
-            git subtree pull -P $GLXC_DATA_PATH /sysconf master | nef_log_pipe "git-subtree:" || nef_fatal "git subtree failed"
-            git push origin master | nef_log_pipe "git-push:" || nef_fatal "git push failed"
+            git subtree pull -P $GLXC_DATA_PATH /sysconf master 2>&1 | nef_log_pipe "git-subtree:" || nef_fatal "git subtree failed"
+            git push origin master 2>&1 | nef_log_pipe "git-push:" || nef_fatal "git push failed"
 
             cd /sysconf
             rm -rf $clone_path
