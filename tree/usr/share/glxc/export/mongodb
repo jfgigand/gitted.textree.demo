@@ -24,11 +24,10 @@ state_ref=$(glxc_state_ref_name mongodb)
 # 0=has new ops
 new_ops=0
 
-echo -e "use local\ndb.oplog.rs.find({op:{\$ne:\"n\"},ns:/^${GLXC_MONGODB_DATABASE}\\./}).sort({\"\$natural\" : -1})[0].h"
 oplog_last_time=$(echo -e "use local\ndb.oplog.rs.find({op:{\$ne:\"n\"},ns:/^${GLXC_MONGODB_DATABASE}\\./}).sort({\"\$natural\" : -1})[0]" | _mongoclient | grep '"h" :' | sed -r 's/.*NumberLong\("([^"]+)"\).*/\1/')
 # oplog_last_time=$(echo -e 'use local\ndb.oplog.$main.find({ns:{$ne:""}}).sort({"$natural" : -1})[0].ts.t' | _mongoclient)
 
-nef_log "oplog_last_time = $oplog_last_time"
+# nef_log "oplog_last_time = $oplog_last_time"
 oplog_last_time_path=/var/run/glxc.$GLXC_GIT_BRANCH.mongodb.oplog_last_time
 if [ -f $oplog_last_time_path ]; then
     [ "$(cat $oplog_last_time_path)" = "$oplog_last_time" ] \
