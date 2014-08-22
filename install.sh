@@ -26,7 +26,9 @@ EOF
 ######################################################################
 #
 # Set up /etc/network/interfaces to source all /etc/network/interfaces.d/*.interfaces
-
+#
+# TODO: update sysconf-etc.d to manage that
+#
 [ -d /etc/network/interfaces.d ] && {
     cat /etc/network/interfaces | grep -q "source /etc/network/interfaces.d" || {
         echo "Fixing /etc/network/interfaces for sourcing interfaces.d/"
@@ -35,9 +37,5 @@ EOF
     }
 }
 
-######################################################################
-#
-# Same for /etc/hosts, /etc/ssh/config, /etc/gitconfig
-nef-update-hosts
-nef-update-ssh-config
-nef-update-gitconfig
+
+sysconf-etc.d update

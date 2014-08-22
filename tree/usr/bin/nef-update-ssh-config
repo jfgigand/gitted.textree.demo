@@ -1,4 +1,7 @@
 #!/bin/sh
+#
+# DEPRECATED!
+# Use sysconf-etc.d instead, a more general way to handle etc-style *.d conf dirs
 
 SSH_CONFIG_GENERATED_HEADER="# GENERATED AUTOMATICALLY BY update-ssh-config"
 

@@ -59,14 +59,17 @@ nef_log() {
 
     local txt="$*"
     local line="$*"
-    local prefix=$(basename $0)
+    local prefix="$NEF_LOG_PREFIX"
+    [ -z "$prefix" ] && prefix="$nef_command_name"
+    [ "$NEF_LOG_PREFIX_NOCOLUMN" = yes ] || prefix="${prefix}: "
+    # prefix=$(basename $0)
 
     if [ "x$NEF_LOG_DATE" = xyes ]; then
         date="`date +'%Y-%m-%d %H:%M:%S:%N' | sed -E 's/.{6}$//'`"
         prefix="$prefix $date"
     fi
 
-    line="$prefix: ${_opt_prepend}${line}"
+    line="${prefix}${_opt_prepend}${line}"
 
     if [ "$NEF_LOG_FILE" = "" ]; then
         echo "$line" >&2
@@ -211,7 +214,7 @@ nef_show_help() {
             if echo "$_line" | grep -qE "^command:"; then
                 full=$(echo "$_line" | sed 's/^command: //')
                 _command_name=$(echo "$full" | sed 's/ .*//')
-                _command_args=$(echo "$full" | sed -r 's/^[^ ]+ //')
+                _command_args=$(echo "$full" | sed -r 's/^[^ ]+ ?//')
 
                 if test -n "$_command"; then
                     if test "$_command" = "$_command_name"; then
