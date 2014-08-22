@@ -352,7 +352,7 @@ sysconf_require_packages()
     done
 
     if [ -n "$_packages" ]; then
-        sysconf_apt-get install --yes --no-upgrade $_packages
+        sysconf_apt-get install --yes -o Dpkg::Options::=--force-confdef --no-upgrade $_packages
     fi
 }
 
