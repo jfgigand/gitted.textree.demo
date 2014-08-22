@@ -12,7 +12,7 @@ _git()
 glxc_state_ref_name()
 {
     name=$1
-    echo refs/lxc-state/$GLXC_GIT_BRANCH/$name
+    echo refs/glxc-state/$GLXC_GIT_BRANCH/$name
 }
 
 glxc_last_commit=$(git show-ref -s refs/heads/$GLXC_GIT_BRANCH)

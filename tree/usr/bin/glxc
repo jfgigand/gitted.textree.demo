@@ -70,6 +70,34 @@ glxc_command_git-remote-command() {
     glxc_show_ip
 }
 
+# command: git <git-command>
+#
+# Execute the given GIT command on the local repository
+#
+# (mainly for debugging/ingo purposes)
+##
+glxc_command_git() {
+    local _argv=()
+    local _command=
+    local _usage=0
+    local _argv=()
+
+    while [ -n "$1" ]; do
+        case "$1" in
+            --usage) _usage=1; shift ;;
+            -h) glxc_command_help help; return ;;
+            --) shift; _argv=("${_argv[@]}" "$@"); shift $# ;;
+            -*) glxc_eval_common_option "$1"; shift ;;
+            *) _argv=("${_argv[@]}" "$1"); shift ;;
+        esac
+    done
+
+    [ "${#_argv[@]}" -lt 1 ] && nef_fatal_usage_command remote "missing argument(s)"
+
+    cd $GIT_DIR
+    git "${_argv[@]}"
+}
+
 ######################################################################
 # FUNCTIONALITY
 

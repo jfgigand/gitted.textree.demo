@@ -68,7 +68,7 @@ if [ "$(git ls-tree $state_ref $GLXC_DATA_PATH 2>/dev/null)" \
     # git push $sysconf_new_commit /sysconf
 
     nef_log "Sysconf data has been imported and applied."
-    _git update-ref -m "import Sysconf data from $glxc_new_commit" $state_ref $glxc_new_commit
+    git update-ref -m "import Sysconf data from $glxc_new_commit" $state_ref $glxc_new_commit
 
 else
     nef_log "SYSCONF data has not changed."

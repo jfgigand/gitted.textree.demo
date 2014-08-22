@@ -26,16 +26,30 @@ if [ "$state_tree" != "$(git ls-tree $glxc_new_commit $GLXC_DATA_PATH)" ]; then
     git ls-tree $glxc_new_commit $GLXC_DATA_PATH/ | (
         while read mode type uuid path; do
             file=$(basename $path)
-            collection=$(basename $file .bson)
-            if [ "$collection" != "$file" ]; then
-                nef_log "Importing into MongoDB: $path"
-                git cat-file -p $uuid >/tmp/data.bson
-                nef_cmd mongorestore -d $GLXC_MONGODB_DATABASE -c $collection /tmp/data.bson
-                # | nef_log_pipe -v "mongorestore:"
-                rm -f /tmp/data.bson
-            else
-                nef_log "Ignoring file: $path"
-            fi
+            collection=$(echo $file | sed -r 's/\.[^.]+//')
+            extension=$(echo $file | sed -r 's/.*\.//')
+
+            case "$extension" in
+                bson)
+                    # if [ "$collection" != "$file" ]; then
+                    nef_log "Importing BSON file into MongoDB: $path"
+                    git cat-file -p $uuid >/tmp/data.bson
+                    nef_cmd mongorestore -d $GLXC_MONGODB_DATABASE -c $collection /tmp/data.bson
+                    mongoimport -d $GLXC_MONGODB_DATABASE -c $collection
+                    # | nef_log_pipe -v "mongorestore:"
+                    rm -f /tmp/data.bson
+                    ;;
+                json)
+                    nef_log "Importing JSON file into MongoDB: $path"
+                    git cat-file -p $uuid | mongoimport -d $GLXC_MONGODB_DATABASE -c $collection
+                    ;;
+                *)
+                    nef_log "ignoring file: $path"
+                    ;;
+            esac
+            # else
+            #     nef_log "Ignoring file: $path"
+            # fi
         done
     )
     nef_log "MongoDB import done."
