@@ -22,11 +22,12 @@ if [ -d /sysconf/.git ]; then
 
         if [ "$(git show-ref -s $state_ref)" != "$(git show-ref -s refs/heads/master)" ]; then
 
+            nef_log "/sysconf head master has changed. Integrating back the changes..."
+
             # Clone a non-bare repository our of the central local one, to please git-subtree
             temp_branch=$(date +T%s)
             clone_path=/tmp/$temp_branch
-            nef_log "cloning to $clone_path"
-            git clone $local_git_dir $clone_path || nef_fatal "git clone failed"
+            git clone $local_git_dir $clone_path | nef_log_pipe "git-clone:" || nef_fatal "git clone failed"
             cd $clone_path
 
             git subtree pull -P $GLXC_DATA_PATH /sysconf master | nef_log_pipe "git-subtree:" || nef_fatal "git subtree failed"
@@ -35,12 +36,10 @@ if [ -d /sysconf/.git ]; then
             cd /sysconf
             rm -rf $clone_path
 
-            nef_log "updating ref $state_ref in $PWD..."
             message="update after exporting sysconf (as a subtree) to the local repository"
             git update-ref -m "$message" $state_ref refs/heads/master
 
             cd $local_git_dir
-            nef_log "updating ref $state_ref in $PWD..."
             message="update after sysconf subtree merge"
             git update-ref -m "$message" $state_ref refs/heads/$GLXC_GIT_BRANCH $glxc_last_commit
 
