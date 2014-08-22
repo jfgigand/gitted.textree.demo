@@ -51,5 +51,5 @@ if [ "$state_tree" != "$(git ls-tree $glxc_new_commit $GLXC_DATA_PATH)" ]; then
     fi
 
 else
-    nef_log "no change for path: $GLXC_DATA_PATH"
+    nef_log "No change for path: $GLXC_DATA_PATH"
 fi

@@ -29,7 +29,8 @@ oplog_last_time=$(echo -e "use local\ndb.oplog.rs.find({op:{\$ne:\"n\"},ns:/^${G
 
 # nef_log "oplog_last_time = $oplog_last_time"
 oplog_last_time_path=/var/run/glxc.$GLXC_GIT_BRANCH.mongodb.oplog_last_time
-if [ -f $oplog_last_time_path ]; then
+
+if [ -f $oplog_last_time_path -a -n "$oplog_last_time" ]; then
     [ "$(cat $oplog_last_time_path)" = "$oplog_last_time" ] \
         && new_ops=1 # which means "no new op" (0=true)
 fi
@@ -55,16 +56,21 @@ if [ $new_ops -eq 0 ]; then
                 _opts="--csv $GLXC_MONGODB_CSV_FIELDS"
             fi
             for collection in $collections; do
-                _path=$GIT_WORK_TREE/$GLXC_DATA_PATH/$collection.json
+                _path="$GIT_WORK_TREE/$GLXC_DATA_PATH/$collection.json"
                 errs=$(
                     mongoexport \
                         --db $GLXC_MONGODB_DATABASE --collection $collection $_opts \
-                        2>&1 >$_path
+                        2>&1 >"$_path"
                 )
                 _status=$?
                 if [ $_status -eq 0 ]; then
-                    _count=$(wc -l $_path | sed 's/ .*//')
-                    nef_log "Exported $_count JSON lines out of collection: $collection"
+                    _count=$(wc -l "$_path" | sed 's/ .*//')
+                    if [ $_count -eq 0 ]; then
+                        nef_log "Ignoring empty collection: $collection"
+                        rm "$_path"
+                    else
+                        nef_log "Exported $_count JSON lines out of collection: $collection"
+                    fi
                 else
                     echo "$errs" | nef_log_pipe "mongoexport:"
                     nef_fatal "mongoexport failed with status $_status"
@@ -118,5 +124,5 @@ if [ $new_ops -eq 0 ]; then
     echo "$oplog_last_time" >$oplog_last_time_path
 
 else
-    nef_log "No change in MongoDB DB '$GLXC_MONGODB_DATABASE' since last sync [$oplog_last_time]"
+    nef_log "No change in DB '$GLXC_MONGODB_DATABASE' since last sync [$oplog_last_time]"
 fi

@@ -26,22 +26,23 @@ if [ "$state_tree" != "$(git ls-tree $glxc_new_commit $GLXC_DATA_PATH)" ]; then
     git ls-tree $glxc_new_commit $GLXC_DATA_PATH/ | (
         while read mode type uuid path; do
             file=$(basename $path)
-            collection=$(echo $file | sed -r 's/\.[^.]+//')
+            collection=$(echo $file | sed -r 's/\.[^.]+$//')
             extension=$(echo $file | sed -r 's/.*\.//')
 
             case "$extension" in
                 bson)
                     # if [ "$collection" != "$file" ]; then
-                    nef_log "Importing BSON file into MongoDB: $path"
+                    nef_log "BSON import into $GLXC_MONGODB_DATABASE.$collection: $path"
                     git cat-file -p $uuid >/tmp/data.bson
-                    nef_cmd mongorestore -d $GLXC_MONGODB_DATABASE -c $collection /tmp/data.bson
-                    mongoimport -d $GLXC_MONGODB_DATABASE -c $collection
-                    # | nef_log_pipe -v "mongorestore:"
+                    # nef_cmd
+                    mongorestore -d $GLXC_MONGODB_DATABASE -c $collection /tmp/data.bson \
+                        2>&1 | nef_log_pipe -v "mongorestore:"
                     rm -f /tmp/data.bson
                     ;;
                 json)
-                    nef_log "Importing JSON file into MongoDB: $path"
-                    git cat-file -p $uuid | mongoimport -d $GLXC_MONGODB_DATABASE -c $collection
+                    nef_log "JSON import into $GLXC_MONGODB_DATABASE.$collection: $path"
+                    git cat-file -p $uuid | mongoimport -d $GLXC_MONGODB_DATABASE -c $collection \
+                        2>&1 | nef_log_pipe "mongoimport:"
                     ;;
                 *)
                     nef_log "ignoring file: $path"
@@ -55,5 +56,5 @@ if [ "$state_tree" != "$(git ls-tree $glxc_new_commit $GLXC_DATA_PATH)" ]; then
     nef_log "MongoDB import done."
     git update-ref -m "import MongoDB data from $glxc_new_commit" $state_ref $glxc_new_commit
 else
-    nef_log "no change for path: $GLXC_DATA_PATH"
+    nef_log "No change for path: $GLXC_DATA_PATH"
 fi

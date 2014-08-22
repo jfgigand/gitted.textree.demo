@@ -71,5 +71,5 @@ if [ "$(git ls-tree $state_ref $GLXC_DATA_PATH 2>/dev/null)" \
     git update-ref -m "import Sysconf data from $glxc_new_commit" $state_ref $glxc_new_commit
 
 else
-    nef_log "SYSCONF data has not changed."
+    nef_log "No change for path: $GLXC_DATA_PATH"
 fi
