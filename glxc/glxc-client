@@ -1,0 +1,463 @@
+#!/bin/bash
+#
+# glxc-client - both an "ext" git-remote and a helper to register it
+#
+# HISTORY
+#   20140818 first version by JF Gigand <jf@geonef.fr>
+
+nef_command_name=glxc-client
+# . $(dirname $0)/../share/nef-common/shell-command || exit 2
+glxc_executive_treeish=
+
+######################################################################
+# COMMANDS
+
+# command: register
+#
+# Copy the glxc-client to the .git
+##
+glxc_command_register() {
+    local _argv=()
+
+    while [ -n "$1" ]; do
+        case "$1" in
+            -h|--help) glxc_command_help init; return ;;
+            -*) glxc_eval_common_option "$1"; shift ;;
+            *) _argv=("${_argv[@]}" "$1"); shift ;;
+        esac
+    done
+
+    [ "${#_argv[@]}" -gt 0 ] && nef_fatal_usage_command init "too many arguments"
+
+    nef_log "Copying $0 to GIT dir..."
+    glxc_ensure_script_in_git_dir
+}
+
+# command: add <name>
+#
+# Register a GIT ext remote for the LXC container <name>
+#
+# The container will be created the first time the handle-remote-protocol command
+# is called (by git push/fetch/pull, etc.).
+# If the container exists already, it is used.
+##
+glxc_command_add() {
+    local _argv=()
+
+    while [ -n "$1" ]; do
+        case "$1" in
+            -h|--help) glxc_command_help add; return ;;
+            -*) glxc_eval_common_option "$1"; shift ;;
+            *) _argv=("${_argv[@]}" "$1"); shift ;;
+        esac
+    done
+
+    [ "${#_argv[@]}" -lt 1 ] && nef_fatal_usage_command add "missing argument(s)"
+    [ "${#_argv[@]}" -gt 1 ] && nef_fatal_usage_command add "too many arguments"
+
+    local _name="${_argv[0]}"
+
+    if git remote | grep -q "^${_name} "; then
+        echo "Remote '$_name' exists already:"
+        git remote -v | grep "^${_name} "
+    else
+        echo "Remote '$_name' does not exists. Creating..."
+        args=(git remote add $_name "ext::$glxc_git_dir/$nef_command_name handle-remote-protocol $_name %S")
+        echo ">" "${args[@]}"
+        "${args[@]}"
+    fi
+
+    local _branch_name=$(git symbolic-ref --short HEAD 2>/dev/null)
+    if [ -n "$_branch_name" ]; then
+        _branch_name="$_branch_name # or another branch"
+    else
+        _branch_name="<branch>"
+    fi
+    echo
+    echo "You may now run:"
+    echo -e "\tgit push $_name $_branch_name"
+    echo -e "\tgit pull $_name $_branch_name"
+}
+
+# command: handle-remote-protocol <name> <remote-command>
+#
+# Handler for the "ext::" git remote
+##
+glxc_command_handle-remote-protocol() {
+    local _argv=()
+
+    while [ -n "$1" ]; do
+        case "$1" in
+            -h|--help) glxc_command_help handle-remote-protocol; return ;;
+            -*) glxc_eval_common_option "$1"; shift ;;
+            *) _argv=("${_argv[@]}" "$1"); shift ;;
+        esac
+    done
+
+    [ "${#_argv[@]}" -lt 2 ] && nef_fatal_usage_command handle-remote-protocol "missing argument(s)"
+    [ "${#_argv[@]}" -gt 2 ] && nef_fatal_usage_command handle-remote-protocol "too many arguments"
+
+    local _name="${_argv[0]}"
+    local _command="${_argv[1]}"
+
+    glxc_ensure_container_running "$_name"
+
+    nef_log "Forwarding command '$_command' to glxc in container '$_name'..."
+    lxc-attach --clear-env -n $_name -- glxc git-remote-command $_command
+}
+
+# command: list
+#
+# Handler for the "ext::" git remote
+##
+glxc_command_list() {
+    local _argv=()
+
+    while [ -n "$1" ]; do
+        case "$1" in
+            -h|--help) glxc_command_help list; return ;;
+            -*) glxc_eval_common_option "$1"; shift ;;
+            *) _argv=("${_argv[@]}" "$1"); shift ;;
+        esac
+    done
+
+    [ "${#_argv[@]}" -gt 0 ] && nef_fatal_usage_command list "too many arguments"
+
+    glxc_list_glxc_remotes
+}
+
+# command: refs [remote] [remote2] ...
+#
+# Handler for the "ext::" git remote
+##
+glxc_command_refs() {
+    local _argv=()
+
+    while [ -n "$1" ]; do
+        case "$1" in
+            -h|--help) glxc_command_help refs; return ;;
+            -*) glxc_eval_common_option "$1"; shift ;;
+            *) _argv=("${_argv[@]}" "$1"); shift ;;
+        esac
+    done
+
+    if [ "${#_argv[@]}" -eq 0 ]; then
+        _argv=( $(glxc_list_glxc_remotes) )
+    fi
+
+    if [ "${#_argv[@]}" -eq 0 ]; then
+        nef_log "There are no glxc remotes. You can create one by running:"
+        nef_log "  $0 add <name>"
+    else
+        git show-ref | nef_log_pipe "(local):"
+        for _name in "${_argv[@]}"; do
+            # glxc_ensure_container_running "$_name"
+
+            state=$(lxc-info -sHn $_name)
+            if [ "$state" = RUNNING ]; then
+                lxc-attach --clear-env -n $_name -- glxc git show-ref | nef_log_pipe "${_name}:"
+            else
+                nef_log "${_name}: (container state is ${state}, not showing refs)"
+            fi
+        done
+    fi
+}
+
+# command: remote-git <name> [--] <git-command> [arg] ...
+#
+##
+glxc_command_remote-git() {
+    local _argv=()
+
+    while [ -n "$1" ]; do
+        case "$1" in
+            -h|--help) glxc_command_help remote-git; return ;;
+            --) shift; _argv=("${_argv[@]}" "$@"); shift $# ;;
+            -*) glxc_eval_common_option "$1"; shift ;;
+            *) _argv=("${_argv[@]}" "$1"); shift ;;
+        esac
+    done
+
+    [ "${#_argv[@]}" -lt 2 ] && nef_fatal_usage_command remote-git "missing argument(s)"
+
+    local _name="${_argv[0]}"
+    unset _argv[0]
+
+    state=$(lxc-info -sHn $_name)
+    [ "$state" != RUNNING ] && nef_fatal "${_name}: container '${_name}' is ${state} (must be running)"
+    nef_log "Running 'glxc git ${_argv[@]}' in container ${_name}:"
+    lxc-attach --clear-env -n $_name -- glxc git -- ${_argv[@]} | nef_log_pipe "${_name}:"
+    nef_log "Command returned status ${PIPESTATUS[0]}"
+}
+
+# command: help [command]
+#
+# Print information about command usage.
+#
+# With no argument, a list of commands is printed.
+##
+glxc_command_help() {
+    local _argv=()
+    local _command=
+    local _usage=0
+
+    while [ -n "$1" ]; do
+        case "$1" in
+            --usage) _usage=1; shift ;;
+            -h|--help) glxc_command_help help; return ;;
+            -*) glxc_eval_common_option "$1"; shift ;;
+            *) _command="$1"; break ;;
+        esac
+    done
+
+    nef_show_help $_command
+}
+
+######################################################################
+# FUNCTIONALITY
+
+glxc_ensure_script_in_git_dir() {
+    cp $0 $glxc_git_dir/$nef_command_name \
+        || nef_fatal "could not copy $0 to $glxc_git_dir/$nef_command_name"
+    commit=$(git rev-parse HEAD)
+    sed -i -r "s/^(glxc_executive_treeish)=(.*)/\1=$commit/" $glxc_git_dir/$nef_command_name
+    # cp $(dirname $0)/glxc-server-setup $glxc_git_dir/
+}
+
+glxc_list_glxc_remotes() {
+    git remote -v \
+        | grep -E 'ext::.*/glxc-client +handle-remote-protocol .*(fetch)' \
+        | sed -r 's/.*glxc-client +handle-remote-protocol +([^ ]+) +.*/\1/'
+}
+
+# usage: glxc_ensure_container_running <name>
+glxc_ensure_container_running() {
+    _name="$1"
+    state=$(lxc-info -sHn $_name)
+
+    if [ -z "$state" ]; then
+        # [ -d "$engine_dir" ] || nef_fatal "container cannot be created as engine dir is not available: $engine_dir"
+        nef_log "LXC container '$_name' does not exist. Creating..."
+        lxc-create -n $_name -t download -- -d debian -r wheezy -a amd64 >&2 \
+            || nef_fatal "lxc-create failed"
+    fi
+
+    state=$(lxc-info -sHn $_name)
+
+    if [ "$state" = "STOPPED" ]; then
+        nef_log "Container '$_name' is $state. Starting it..."
+        lxc-start -n $_name -d \
+            || nef_fatal "lxc-start failed"
+        sleep 1
+    fi
+
+    lxc-attach --clear-env -n $_name -- test -d /sysconf || {
+        nef_log "sysconf is not defined. extracting from $glxc_executive_treeish..."
+        git archive $glxc_executive_treeish glxc/sysconf/ \
+            | lxc-attach --clear-env -n $_name -- tar x -C / --strip-components=1 >&2
+        lxc-attach --clear-env -n $_name -- \
+            /sysconf/sysconf.base/tree/usr/bin/sysconf compile install update \
+            2>&1 | nef_log_pipe "sysconf@$_name:"
+    }
+}
+
+######################################################################
+# COMMAND LINE & RUN
+
+glxc_eval_common_option() {
+    case "$1" in
+        -v | --verbose) nef_opt_show_verbose=yes; shift ;;
+        -vv | --debug-verbose) nef_opt_show_verbose=yes; nef_opt_show_debug=yes; shift ;;
+        -h | --help) nef_show_usage; exit 0 ;;
+        -*) nef_fatal "bad option: $1, use -h for usage information" ;;
+    esac
+}
+
+nef_fatal_usage_command() {
+    local _command="$1"; shift
+
+    nef_log "$_command usage error: $*"
+    echo >&2
+    glxc_command_help --usage "$_command" >&2
+    exit 1
+}
+
+glxc_parse_cmdline() {
+    nef_command_merge_env
+    nef_command_init_options
+
+    glxc_command_argv=()
+
+    while [ -n "$1" ]; do
+
+        case "$1" in
+            -*) glxc_eval_common_option "$1"; shift ;;
+            *) glxc_command_argv=("$@"); break ;;
+        esac
+
+    done
+
+    [ -z "${glxc_command_argv[0]}" ] && glxc_command_argv=(help)
+    glxc_git_dir=$(git rev-parse --git-dir)
+    echo "$glxc_git_dir" | grep -q / || {
+        glxc_git_dir=$PWD/$glxc_git_dir
+    }
+    [ -z "$glxc_git_dir" ] && nef_fatal "not in GIT directory or working tree"
+
+
+    # Run command
+    glxc_command_function_name="glxc_command_${glxc_command_argv[0]}"
+    unset glxc_command_argv[0]
+    $glxc_command_function_name "${glxc_command_argv[@]}" \
+        || nef_fatal "command ${glxc_command_argv[0]} returned status $?"
+    nef_log -v "Command returned successfully."
+}
+
+######################################################################
+# FROM sysconf.base library
+# https://github.com/geonef/sysconf.base/blob/master/tree/usr/share/nef-common/shell-command
+
+nef_log() {
+    [ "x$NEF_LOG_FILE" = x ] && NEF_LOG_FILE="$LOG_FILE" # Legacy compat
+
+    declare _opt_verbose=no
+    declare _opt_debug=no
+    declare _opt_prepend=""
+
+    while [ "$1" != "" ]; do
+
+        case "$1" in
+            -p | --prepend) _opt_prepend="$2"; echo "prenddd..$2"; shift; shift ;;
+            -v | --verbose) _opt_verbose=yes; shift ;;
+            -d | --debug) _opt_debug=yes; shift ;;
+            -*) nef_log "nef_log(): bad option: $1"; shift ;;
+            *) break ;;
+        esac
+
+    done
+
+    [ $_opt_verbose = yes -a x$nef_opt_show_verbose = xno ] && return 0
+    [ $_opt_debug = yes -a x$nef_opt_show_debug = xno ] && return 0
+
+    local txt="$*"
+    local line="$*"
+    local prefix=$(basename $0)
+
+    if [ "x$NEF_LOG_DATE" = xyes ]; then
+        date="`date +'%Y-%m-%d %H:%M:%S:%N' | sed -E 's/.{6}$//'`"
+        prefix="$prefix $date"
+    fi
+
+    line="$prefix: ${_opt_prepend}${line}"
+
+    if [ "$NEF_LOG_FILE" = "" ]; then
+        echo "$line" >&2
+    else
+        echo "$line" | tee -a $LOG_FILE >&2
+    fi
+}
+
+nef_log_pipe() {
+    local _opt_stdout=no
+
+    while true; do
+        case "$1" in
+            --stdout) _opt_stdout=yes; shift ;;
+            *) break ;;
+        esac
+    done
+
+    while read; do
+        nef_log "$@" "$REPLY"
+        [ $_opt_stdout = yes ] && echo "$REPLY"
+    done
+    return 0
+}
+
+nef_fatal() {
+    nef_log "FATAL ERROR: $*"
+    exit 1;
+}
+
+nef_command_merge_env() {
+    local _path=/etc/default/$nef_command_name
+
+    if [ -f $_path ]; then
+        nef_log -v "loading defaults from $_path"
+        . $_path
+    fi
+}
+
+nef_command_init_options()
+{
+    nef_command_path=$0
+    nef_command_callname=$(basename $nef_command_path)
+    [ "x$nef_command_name" = x ] && nef_command_name=$nef_command_callname
+
+    nef_opt_show_verbose=no
+    nef_opt_show_debug=no
+}
+
+# Usage: nef_show_help [command]
+nef_show_help() {
+    local _command="$1"
+    local _keep_showing=0
+    local _prefix1="usage: $nef_command_callname"
+    local _prefix2=$(echo "$_prefix1" | sed "s/./ /g")
+
+    if test -z "$_command"; then
+        cmd_description=$(cat $(which "$0") | head -n 3 | tail -n 1 | sed -r 's/[^-]*- ?//')
+        cat <<-EOF
+	$nef_command_callname - $cmd_description
+
+	$_prefix1 [--verbose] [--debug-verbose] [--help]
+	$_prefix2 <command> [<args>]
+
+	EOF
+    fi
+    grep -E ^# "$(which "$0")" | (
+        while read; do
+            local _command_name=
+            local _line=$(echo "$REPLY" | sed -r 's/^# ?//')
+
+            if test "$_keep_showing" -ne 0; then
+                if echo "$REPLY" | grep -qE "^##"; then
+                    _keep_showing=0
+                    exit
+                else
+                    echo "$_line"
+                    continue
+                fi
+            fi
+            if echo "$_line" | grep -qE "^command:"; then
+                full=$(echo "$_line" | sed 's/^command: //')
+                _command_name=$(echo "$full" | sed 's/ .*//')
+                _command_args=$(echo "$full" | sed -r 's/^[^ ]+ ?//')
+
+                if test -n "$_command"; then
+                    if test "$_command" = "$_command_name"; then
+                        echo "usage: $nef_command_callname $_command $_command_args"
+                        [ $_usage -eq 0 ] && _keep_showing=1
+                    fi
+                else
+                    echo -e "    $_command_name\t$_command_args"
+                fi
+            fi
+            if echo "$REPLY" | grep -qE "^### "; then
+                if test -z "$_command"; then
+                    full=$(echo "$REPLY" | sed 's/^### //')
+                    echo
+                    echo "  $full"
+                    echo
+                fi
+            fi
+
+        done
+    )
+    echo
+}
+
+
+######################################################################
+
+glxc_parse_cmdline "$@"
