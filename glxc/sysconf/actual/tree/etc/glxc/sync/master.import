@@ -1,0 +1,5 @@
+#!/bin/bash
+#
+
+GLXC_DATA_PATH=glxc/sysconf \
+    /usr/share/glxc/import/sysconf

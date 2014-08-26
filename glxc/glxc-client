@@ -57,6 +57,8 @@ glxc_command_add() {
 
     local _name="${_argv[0]}"
 
+    glxc_ensure_script_in_git_dir
+
     if git remote | grep -q "^${_name} "; then
         echo "Remote '$_name' exists already:"
         git remote -v | grep "^${_name} "

@@ -1,0 +1,7 @@
+#!/bin/sh
+
+ip=$(ip -o -4 addr show dev eth0 primary  | sed -r 's/.* inet ([0-9.]+).*/\1/')
+
+echo
+echo "*** HTTP service: http://$ip/"
+echo
