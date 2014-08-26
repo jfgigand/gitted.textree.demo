@@ -1,0 +1,75 @@
+#!/bin/bash
+#
+# nef-expire - utility for the maintenance of expire/ directories
+#
+# By JF Gigand <jf@geonef.fr>
+#  Created on 20140701
+#
+# Basic usage: $0 <expire-dir-path>
+#
+# This command is always interactive.
+# TODO: implement non-interactive and "-i" / "-f" option behaving like those of rm(1)
+#
+
+######################################################################
+# LIBS
+. /usr/lib/sysconf.base/common.sh
+
+
+######################################################################
+# DEFAULTS
+
+NEF_EXPIRE_CONFIG_DEFAULT=/etc/default/nef-expire
+NEF_EXPIRE_FLAG_FILENAME="NEF_EXPIRE.flag"
+NEF_EXPIRE_LOCK_FILENAME="nef-expire.LOCK"
+
+show_usage()
+{
+    echo "usage: $0 <expire-dir-path>"
+}
+
+
+######################################################################
+# CONFIG MERGE
+
+[ -f $NEF_EXPIRE_CONFIG_DEFAULT ] && . $NEF_EXPIRE_CONFIG_DEFAULT
+
+
+######################################################################
+# RUNTIME
+
+expire_dir="$1"
+[ "x$expire_dir" = "x" ] && nef_usage_error
+cd "$expire_dir" || nef_fatal "could not chdir to '$expire_dir'"
+[ -a "$NEF_EXPIRE_FLAG_FILENAME" ] || nef_fatal "flag file '$NEF_EXPIRE_FLAG_FILENAME' has to be present in the directory (for safety)"
+[ -a "$NEF_EXPIRE_LOCK_FILENAME" ] && nef_fatal "lockfile '$NEF_EXPIRE_LOCK_FILENAME' exists already"
+
+expire_today=$(date +%Y%m%d)
+nef_log "Today date is '$expire_today'. Creating lock file '$NEF_EXPIRE_LOCK_FILENAME' in '$expire_dir'..."
+echo $expire_today >"$NEF_EXPIRE_LOCK_FILENAME" || nef_fatal "could not create lockfile '$NEF_EXPIRE_LOCK_FILENAME'"
+
+nef_array_from_lines expire_files_all_array "` ls | grep -E '^[0-9]{6}' `"
+for file in "${expire_files_all_array[@]}"; do
+    echo
+    if test "$file" "<" "$expire_today"; then
+        echo "EXPIRED:" $file
+        (
+            if test -d "$file"; then
+                echo "DIRECTORY CONTENT:"
+                ls -l "$file"
+            fi
+            if nef_confirm "Execute \"rm -rf '$file'\""; then
+                nef_log "Deleting '$file'..."
+                rm -rf "$file" || nef_fatal "could not delete '$file'"
+            else
+                nef_log "Not deleting file '$file'."
+            fi
+        ) | nef_increment_text
+    else
+        echo "NOT EXPIRED:" $file
+    fi
+done
+
+nef_log "Removing lock file '$NEF_EXPIRE_LOCK_FILENAME' in '$expire_dir'..."
+rm -f "$NEF_EXPIRE_LOCK_FILENAME" || nef_fatal "could not remote lockfile '$NEF_EXPIRE_LOCK_FILENAME'"
+nef_log "Done. Bye!"

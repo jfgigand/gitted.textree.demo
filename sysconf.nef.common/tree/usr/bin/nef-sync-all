@@ -1,0 +1,16 @@
+#!/bin/bash
+#
+# nef-sync-all - calls "nef-sync" multiple times
+#
+# Examples:
+#   nef-sync-all auto.*
+#   nef-sync-all manual.*
+#   nef-sync-all okapatate.*
+
+# . /usr/share/bash-nef/util
+
+pattern="$1"
+[ "x$pattern" = "x" ] && pattern='*'
+
+(for i in /etc/nef-sync/$pattern.conf; do basename $i .conf; done) \
+    | xargs -n 1 nef-sync;
