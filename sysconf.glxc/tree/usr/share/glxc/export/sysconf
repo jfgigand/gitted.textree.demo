@@ -1,0 +1,54 @@
+#!/bin/bash
+#
+# GLXC EXPORT: SYSCONF -> GIT files
+#
+
+. /usr/share/glxc/export.init.bash || exit 2
+
+[ -z "$GLXC_DATA_PATH" ] && nef_fatal "missing variable: GLXC_DATA_PATH"
+
+state_ref=$(glxc_state_ref_name sysconf)
+
+if [ -d /sysconf/.git ]; then
+
+
+    (
+        local_git_dir=$GIT_DIR
+        unset GIT_DIR
+        unset GIT_WORK_TREE
+        unset GIT_INDEX
+
+        cd /sysconf
+
+        if [ "$(git show-ref -s $state_ref)" != "$(git show-ref -s refs/heads/master)" ]; then
+
+            nef_log "/sysconf head master has changed. Integrating back the changes..."
+
+            # Clone a non-bare repository our of the central local one, to please git-subtree
+            temp_branch=$(date +T%s)
+            clone_path=/tmp/$temp_branch
+            git clone $local_git_dir $clone_path 2>&1 | nef_log_pipe "git-clone:" || nef_fatal "git clone failed"
+            cd $clone_path
+
+            git subtree pull -P $GLXC_DATA_PATH /sysconf master 2>&1 | nef_log_pipe "git-subtree:" || nef_fatal "git subtree failed"
+            git push origin master 2>&1 | nef_log_pipe "git-push:" || nef_fatal "git push failed"
+
+            cd /sysconf
+            rm -rf $clone_path
+
+            message="update after exporting sysconf (as a subtree) to the local repository"
+            git update-ref -m "$message" $state_ref refs/heads/master
+
+            cd $local_git_dir
+            message="update after sysconf subtree merge"
+            git update-ref -m "$message" $state_ref refs/heads/$GLXC_GIT_BRANCH $glxc_last_commit
+
+        else
+            nef_log "No change committed in /sysconf in branch master"
+        fi
+
+    ) || nef_fatal "sub-command failed"
+
+else
+    nef_log "/sysconf/.git does not exist, ignored."
+fi
