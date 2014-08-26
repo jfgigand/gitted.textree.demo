@@ -1,0 +1,80 @@
+#!/bin/sh
+#
+# DEPRECATED!
+# Use sysconf-etc.d instead, a more general way to handle etc-style *.d conf dirs
+
+SSH_CONFIG_GENERATED_HEADER="# GENERATED AUTOMATICALLY BY update-ssh-config"
+
+die()
+{
+    code=$1
+    shift
+
+    echo $@
+    exit $code
+}
+
+# usage: update_config SSH_CONFIG_PATH
+update_config()
+{
+    configpath="$1"
+    shift
+    configfile=$(basename "$configpath")
+    configdir=$(dirname "$configpath")
+    configdir_d="$configdir/$configfile.d"
+
+    # [ -r "$configpath" ] || {
+    # 	echo "$configpath does not exist or is not readable"
+    # 	return
+    # }
+
+    [ -f "$configpath" ] && {
+	grep -q "$SSH_CONFIG_GENERATED_HEADER" "$configpath" || {
+	    echo "$configpath does not seem to be an auto-generated file. Not updating."
+	    return
+	}
+    }
+
+    [ -d $configdir_d ] || {
+	echo "$configdir_d does not exist. $configpath won't be updated."
+	return
+    }
+
+    echo "Generating $configpath out of $configdir_d..."
+    echo
+
+    files=$(find $configdir_d -not -type d | grep -v '~$' | grep -v '\.bak*')
+    filecount=$(echo $files | wc -w)
+    content=""
+    for f in $files; do
+	echo "Including file: $f"
+	filecontent=$(cat $f)
+	content="$content\n\n# $f\n$filecontent"
+    done
+    echo "$SSH_CONFIG_GENERATED_HEADER\n$content" >$configpath
+    count=$(cat $configpath | wc -l)
+    echo
+    echo "Done with $count lines from $filecount file(s)."
+    echo
+}
+
+install_site_user_config()
+{
+    if [ -d /etc/ssh/user_ssh_config.d ]; then
+        [ -d ~/.ssh/config.d ] || mkdir -p ~/.ssh/config.d
+        for f in /etc/ssh/user_ssh_config.d/*; do
+            if [ ! -h ~/.ssh/config.d/`basename $f` ]; then
+                echo "Symlinking $f from ~/.ssh/config.d/"
+                ln -s $f ~/.ssh/config.d/
+            fi
+        done
+    fi
+}
+
+install_site_user_config
+update_config ~/.ssh/config
+
+[ "$(id -u)" = "0" ] && {
+    update_config /etc/ssh/ssh_config
+    update_config /etc/ssh/sshd_config
+}
