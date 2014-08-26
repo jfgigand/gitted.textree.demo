@@ -61,13 +61,15 @@ glxc_command_git-remote-command() {
         esac
     done
 
+    glxc_run_hooks pre-git
     glxc_run_git_script export
-    # glxc_export_git_state
-    $_command $GIT_DIR
-    glxc_run_git_script import
-    # glxc_import_git_state
+    glxc_run_hooks pre-git-command
 
-    glxc_show_ip
+    $_command $GIT_DIR
+
+    glxc_run_hooks post-git-command
+    glxc_run_git_script import
+    glxc_run_hooks post-git
 }
 
 # command: git <git-command>
@@ -108,9 +110,16 @@ glxc_run_git_script() {
         export GLXC_GIT_BRANCH=$(echo $name | sed 's/\..*//')
         $script 2>&1 | nef_log_pipe "<$name>"
     done
-    # for module in aire-data mongodb postgresql; do
-    #     /usr/share/glxc/import/$module 2>&1 | nef_log_pipe "<$module>"
-    # done
+}
+
+# usage: glxc_run_hooks <hook-name>
+glxc_run_hooks() {
+    local _name=$1
+    local _dir=/etc/glxc/hook/${_name}.d
+
+    for hook in $(find $_dir -type f -and -executable); do
+        $hook | nef_log_pipe "${hook}:"
+    done
 }
 
 # glxc_export_git_state() {
@@ -123,14 +132,6 @@ glxc_run_git_script() {
 #     #     /usr/share/glxc/export/$module 2>&1 | nef_log_pipe "<$module>"
 #     # done
 # }
-
-# Show the IP address to help the user
-glxc_show_ip() {
-    ip=$(ip -o -4 addr show dev eth0 primary  | sed -r 's/.* inet ([0-9.]+).*/\1/')
-    nef_log
-    nef_log "*** AIRE service: http://$ip/"
-    nef_log
-}
 
 ######################################################################
 # COMMAND LINE & RUN
