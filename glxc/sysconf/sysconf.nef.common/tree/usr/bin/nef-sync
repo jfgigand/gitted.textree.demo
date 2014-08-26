@@ -1,0 +1,236 @@
+#!/bin/bash
+#
+# nef-sync - utility wrapped around rsync
+#
+# By JF Gigand <jf@geonef.fr>
+#  Created on october 2011
+#  Rwritten on january 2014
+#
+# Usage: $0 <profile-name>
+#
+#
+# Profile options:
+#
+#   NEFSYNC_SOURCE_PATH (mandatory)
+#       Source sync directory
+#
+#   NEFSYNC_TARGET_PATH (mandatory)
+#       Target sync directory
+#
+#   NEFSYNC_LOG_FILE
+#       Path to log file
+#
+#   NEFSYNC_OPTIONS_ARRAY
+#       Array of options to pass to rsync
+#
+#   NEFSYNC_FILTERS_ARRAY
+#       Array of filters to pass to rsync using --filter=... options
+#
+#   NEFSYNC_IS_INCREMENTAL
+#       Whether the target dir is managed like an incremental backup
+#       (rsync --link-dest=...)
+#
+#   NEFSYNC_SHOW_PROGRESS (yes/no)
+#       Whether to show real time transfers progress (rsync --progress)
+#
+#   NEFSYNC_DEST_LOG (yes/no)
+#       Whether to set rsync log to file in dest folder 'logs/'
+#
+#
+# Configurable options:
+#
+#   NEFSYNC_PROFILE_DIR [/etc/nef-sync]
+#       Path to directory containing the profile files
+#
+#
+# Hard-coded options:
+#
+#   NEFSYNC_CONFIG_FILE [/etc/default/nef-sync]
+#       Path to common nef-sync configuration
+#
+. /usr/lib/sysconf.base/common.sh
+
+
+##################################################
+# DEFAULTS / INITS
+
+declare -a NEFSYNC_FILTERS_ARRAY
+declare -a NEFSYNC_OPTIONS_ARRAY
+declare -a NEFSYNC_DEFAULT_OPTIONS_ARRAY
+
+NEFSYNC_BEFORE_SYNC() { echo NEFSYNC_BEFORE_SYNC; }
+NEFSYNC_AFTER_SYNC() { echo NEFSYNC_AFTER_SYNC; }
+
+NEFSYNC_IS_INCREMENTAL=no
+NEFSYNC_DEST_LOG=yes
+NEFSYNC_SHOW_PROGRESS=yes
+NEFSYNC_LOG_FILE=~/nef-sync.log
+NEFSYNC_CONFIG_FILE=/etc/default/nef-sync
+NEFSYNC_PROFILE_DIR=/etc/nef-sync
+
+NEFSYNC_DEFAULT_OPTIONS_ARRAY=(
+    --verbose
+    --stats
+    --archive
+    --one-file-system
+    --compress
+    --itemize-changes
+    --delete-excluded
+)
+
+opt_simulate=0
+
+while getopts "s" opt "$@"; do
+    case $opt in
+        s)
+            opt_simulate=1
+            ;;
+        :)
+            echo "Missing argument to option '$OPTARG'"
+            exit 1
+            ;;
+        \?)
+            echo "Invalid option: -$OPTARG" >&2
+            ;;
+    esac
+done
+
+shift $((OPTIND-1))
+
+NEFSYNC_PROFILE_NAME="$1"
+shift
+[ "x$NEFSYNC_PROFILE_NAME" = "x" ] && fatal_error "usage: $0 [-s] <profile>"
+
+##################################################
+# MERGE sync profile
+
+[ -f $NEFSYNC_CONFIG_FILE ] && . $NEFSYNC_CONFIG_FILE
+
+NEFSYNC_PROFILE_FILE=$NEFSYNC_PROFILE_DIR/$NEFSYNC_PROFILE_NAME.conf
+[ -f $NEFSYNC_PROFILE_FILE ] || fatal_error "Profile file does not exist: $NEFSYNC_PROFILE_FILE"
+. $NEFSYNC_PROFILE_FILE
+
+[ -f $NEFSYNC_LOG_FILE ] || touch $NEFSYNC_LOG_FILE
+
+[ "$NEFSYNC_SHOW_PROGRESS" = "yes" ] && NEFSYNC_DEFAULT_OPTIONS_ARRAY=(
+    "${NEFSYNC_DEFAULT_OPTIONS_ARRAY[@]}"
+    "--progress"
+)
+
+
+NEFSYNC_FILTERS_ARRAY=(
+    '- /lost+found'
+    "${NEFSYNC_FILTERS_ARRAY[@]}"
+)
+
+for filter in "${NEFSYNC_FILTERS_ARRAY[@]}"; do
+    NEFSYNC_DEFAULT_OPTIONS_ARRAY=(
+        "${NEFSYNC_DEFAULT_OPTIONS_ARRAY[@]}"
+        "--filter=$filter"
+    )
+done
+
+##################################################
+# PREPARE
+
+if test "$NEFSYNC_TARGET_PATH_AUTOMOUNT" = "yes"; then
+
+    was_mounted=1
+
+    echo 'df | grep -vq " $NEFSYNC_TARGET_PATH\$"'
+    if test `df | grep " $NEFSYNC_TARGET_PATH\$" | wc -l` = 0; then
+        log "$NEFSYNC_TARGET_PATH is not mounted. Trying to mount..."
+        was_mounted=0
+        mount "$NEFSYNC_TARGET_PATH" || \
+            fatal_error "target path cannot be mounted:$NEFSYNC_TARGET_PATH"
+    else
+        log "$NEFSYNC_TARGET_PATH is mounted :)"
+    fi
+fi
+
+NEFSYNC_BEFORE_SYNC
+
+
+##################################################
+# PERFORM SYNC
+
+
+target_path="$NEFSYNC_TARGET_PATH/"
+present=`date +'%Y%m%d-%H%M%S'`
+rsync_log="$NEFSYNC_LOG_FILE"
+
+if test "$NEFSYNC_DEST_LOG" = "yes"; then
+    rsync_log_dir="$NEFSYNC_TARGET_PATH/logs"
+    rsync_log="$rsync_log_dir/$present.full.log"
+    mkdir -p "$rsync_log_dir"
+fi
+
+if test "$NEFSYNC_IS_INCREMENTAL" = "yes"; then
+    base_target_path="$NEFSYNC_TARGET_PATH/$present.full";
+    target_path="$base_target_path.inprogress"
+
+    log "INCREMENTAL: using target path: $target_path"
+    mkdir -p "$target_path"
+
+    last_full_target_path=$(ls -d --reverse $NEFSYNC_TARGET_PATH/*.full.complete | head -n 1);
+    if test "x$last_full_target_path" = "x"; then
+        log "INCREMENTAL: no previous \*.full.complete/ dir exist in '$NEFSYNC_TARGET_PATH', the whole will be transfered"
+    else
+        NEFSYNC_DEFAULT_OPTIONS_ARRAY=(
+            "${NEFSYNC_DEFAULT_OPTIONS_ARRAY[@]}"
+            "--link-dest=$last_full_target_path"
+        )
+    fi
+
+    failed_target_paths=$(ls -d --reverse $NEFSYNC_TARGET_PATH/*.full.failed);
+    if test "x$failed_target_paths" != "x"; then
+        link_dest_options=$(echo "$failed_target_paths" | sed 's/\(.*\)/--link-dest=\1/g')
+        declare -g -a link_dest_options_array
+        nef_array_from_lines link_dest_options_array "$link_dest_options"
+        NEFSYNC_DEFAULT_OPTIONS_ARRAY=(
+            "${NEFSYNC_DEFAULT_OPTIONS_ARRAY[@]}"
+            "${link_dest_options_array[@]}"
+        )
+    fi
+fi
+
+rsync=rsync
+[ "$opt_simulate" = "1" ] && rsync="echo rsync"
+
+if (set -x; exec time $rsync \
+    "${NEFSYNC_DEFAULT_OPTIONS_ARRAY[@]}" \
+    "--log-file=$rsync_log" \
+    "${NEFSYNC_OPTIONS_ARRAY[@]}" \
+    "$NEFSYNC_SOURCE_PATH/" "$target_path"); then
+
+    log "SUCCESSFUL END COMMAND: $command"
+
+    if test "$NEFSYNC_IS_INCREMENTAL" = "yes"; then
+        final_target_path="$base_target_path.complete"
+    fi
+else
+    code=$?
+    log "FAILED COMMAND (status=$code): $command"
+
+    if test "$NEFSYNC_IS_INCREMENTAL" = "yes"; then
+        final_target_path="$base_target_path.failed"
+    fi
+
+fi
+
+##################################################
+# AFTER SYNC
+
+NEFSYNC_AFTER_SYNC
+
+if test "$NEFSYNC_IS_INCREMENTAL" = "yes"; then
+    log "INCREMENTAL: renaming '$target_path' to '$final_target_path'"
+    mv "$target_path" "$final_target_path"
+fi
+
+
+[ "$NEFSYNC_TARGET_PATH_AUTOMOUNT" = "yes" ] && \
+    [ "$was_mounted" = "0" ] && \
+    umount "$NEFSYNC_TARGET_PATH"
+
+# EOF

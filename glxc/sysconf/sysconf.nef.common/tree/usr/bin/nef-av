@@ -1,0 +1,273 @@
+#!/bin/bash
+#
+# nef-av - utility to help manage/reencode audio/video media using avconv(1)
+#
+# PURPOSES OF THE SCRIPT
+#
+#   - batch encoding, like: nef-av myprofile *.avi
+#
+#   - investigation: formats, codecs, filesizes, lengths, image size on
+#       single and multiple file [TODO]
+#
+#   - checking about probable compatibility on specifiedtargets
+#     (html5, web flash, windows, default ubuntu) [TODO]
+#
+#   - automatic advise about machine-guessable file size reencoding
+#     optimizations [TODO]
+#
+# HISTORY
+#   20140630 advises from Florent Thiery <florent.thiery@ubicast.eu>
+#   20140701 first version by JF Gigand <jf@geonef.fr>
+#
+
+
+######################################################################
+# LIBS
+. /usr/lib/sysconf.base/common.sh
+
+
+######################################################################
+# "hard-coded" DEFINITIONS
+
+NEF_AV_CONFIG_DEFAULT=/etc/default/nef-av
+NEF_AV_PROFILE_DIR=/etc/nef-av
+NEF_AV_COMMAND="avconv"
+NEF_AV_INPUT_SUFFIXES=(
+    .avi
+    .mp4
+    .ogv
+)
+
+show_usage()
+{
+    cat <<EOF
+usage: $0 encode [options] <profile> [options] <file1> [file2 [... fileN] ]
+
+    Encode given files using avconv(), using defs from <profile>.
+
+    Each output file name is obtained by stripping off the extension the source
+    file and adding the output extension as defined by the profile.
+
+    No file will ever be overwritten without asking, unless the -f option is
+    given.
+
+    Options can be given anywhere between arguments, it does not matter.
+
+    <profile>
+        Name of profile to use, or "?" for a list.
+
+        A profile 'myprofile' is defined using /etc/nef-av/profile.myprofile.conf
+        which contains bash(1) declarations.
+
+        An example is provided, check out: etc/nef-av/profile.florent.conf.
+
+    -m, --missing
+        Ignore medias already processed
+
+    -oa, --audio
+        Process audio only. Exclusive of --video.
+        This will use the "-an" option of avconv(1).
+        [not supported yet]
+
+    -ov, --video
+        Process video only. Exclusive of --audio.
+
+    -e <avconv options>, --extra <avconv options>
+        Use the given avconv(1) options for encoding.
+        These are append at and of commandline, before the ouput file arg.
+
+    --no-defaults
+        Do not source /etc/defaults/nef-av.
+
+    -s, --simulate
+        Do not run avconv nor modify anything. Just show what would be done.
+
+    -v, --verbose
+        Enable verbose
+
+    -h, --help
+        Show usage help
+
+    --debug
+        Enable debug verbose
+
+Examples:
+
+  $ nef-av encode ?
+Available profiles:
+  florent - Default a/v encoding based one example from Florent Thiery
+
+  $ nef-av encode florent *.ogv --extra "-threads 2"
+EOF
+}
+
+nef_av_verbose()
+{
+    if test "$nef_av_opt_verbose" = yes; then
+        nef_log "[VERBOSE]" "$@"
+        return 0
+    fi
+    return 1
+}
+nef_av_debug()
+{
+    if test "$nef_av_opt_debug" = yes; then
+        nef_log "[DEBUG]" "$@"
+        return 0
+    fi
+    return 1
+}
+
+# usage: $0 <lowercase profile name> # error-checking/msg will be done
+_nef_av_load_profile()
+{
+    _profile_name="$1"
+
+    if test "$_profile_name" = "?"; then
+        echo "Available profiles:"
+        for file in "${NEF_AV_PROFILE_DIR}/profile.*.conf"; do
+            (
+                name=$(basename $file .conf | sed -E 's/^profile.//')
+                descr=$( . $file && echo "${NEF_AV_PROFILE_DESCR}")
+                echo "  $name - $descr"
+            )
+        done
+        exit 0
+    fi
+
+    _profile_file="${NEF_AV_PROFILE_DIR}/profile.${_profile_name}.conf"
+    . $_profile_file || nef_fatal "could not load profile file: $_profile_file"
+}
+
+nef_av_run_avconv()
+{
+    if test "$nef_av_opt_simulate" = yes; then
+        nef_log "[SIMULATION] Running:" "$NEF_AV_COMMAND" "$@"
+    else
+        nef_log "Running:" "$NEF_AV_COMMAND" "$@"
+        "$NEF_AV_COMMAND" "$@"
+    fi
+}
+
+nef_av_command_encode()
+{
+    shift
+    [ "x$1" = "x" ] && nef_usage_error
+    _nef_av_load_profile "$1"
+    shift
+    [ "x$1" = "x" ] && nef_fatal "encode: no file to process ; see --help"
+
+    # Prepare
+    _input_files=("$@")
+    _sed_expr="s/^(.*)\.(mp4|avi|ogv)/\1${NEF_AV_PROFILE_OUPUT_SUFFIX}/"
+    if test "$nef_av_opt_video_only" = yes; then
+        NEF_AV_PROFILE_AUDIO_ARGS=(-an)
+    fi
+
+    # Now process files
+    for _input_file in "${_input_files[@]}"; do
+        [ -f "$_input_file" ] || nef_fatal "file not found: $_input_file"
+
+        _output_file=$(echo "$_input_file" | sed -E "$_sed_expr")
+
+        [ "x$_output_file" = "x$_input_file" ] && nef_fatal "unknown extension suffix for file: $_input_file"
+
+        if test -f "$_output_file"; then
+
+            if test "$nef_av_opt_missing_only" = yes; then
+                nef_log "Not processing '$_input_file' as output exists already: $_output_file"
+                continue
+            fi
+
+            if test "$nef_av_opt_force" = no; then
+                if nef_confirm "Overwrite output file '$_output_file'"; then
+                    nef_log "Okay fine..."
+                else
+                    nef_log "Ignoring file '$_input_file'..."
+                    continue
+                fi
+            fi
+        fi
+
+        nef_log "Converting '$_input_file' to '$_output_file'"
+        _command_args_array=(
+            -i "$_input_file"
+            "${NEF_AV_PROFILE_VIDEO_ARGS[@]}"
+            "${NEF_AV_PROFILE_AUDIO_ARGS[@]}"
+            "${NEF_AV_PROFILE_OTHER_ARGS[@]}"
+            "${nef_av_opt_extra_array[@]}"
+            "$_output_file"
+        )
+        nef_av_run_avconv "${_command_args_array[@]}"
+    done
+
+}
+
+######################################################################
+# COMMAND LINE PARSING
+
+nef_av_opt_nodefaults=no
+nef_av_opt_force=no
+nef_av_opt_verbose=no
+nef_av_opt_simulate=no
+nef_av_opt_debug=no
+nef_av_opt_missing_only=no
+nef_av_opt_audio_only=no
+nef_av_opt_video_only=no
+nef_av_opt_extra_array=()
+nef_av_command_argv=()
+
+while [ "$1" != "" ]; do
+
+    case "$1" in
+        -f | --force) nef_av_opt_force=yes; shift ;;
+        -m | --missing) nef_av_opt_missing_only=yes; shift ;;
+        -oa | --audio) nef_av_opt_audio_only=yes; shift ;;
+        -ov | --video) nef_av_opt_video_only=yes; shift ;;
+        -e | --extra) [ "x$2" = "x" ] && nef_usage_error "$1 requies an argument"
+            nef_av_opt_extra_array=("${nef_av_opt_extra_array[@]}" $2)
+            shift; shift ;;
+        --no-defaults) nef_av_opt_nodefaults=yes; shift ;;
+        -s | --simulate) nef_av_opt_simulate=yes; shift ;;
+        -v | --verbose) nef_av_opt_verbose=yes; shift ;;
+        --debug) nef_av_opt_debug=yes; shift ;;
+        --help) show_usage; exit 0 ;;
+        -*) nef_usage_error "bad option: '$1'" ;;
+        *) nef_av_command_argv=(${nef_av_command_argv[@]} "$1"); shift ;;
+    esac
+
+done
+
+[ "$nef_av_opt_audio_only" = yes -a "$nef_av_opt_video_only" = yes ] && nef_fatal "--audio and --video are exclusive, see --help"
+[ "x${nef_av_command_argv[0]}" = "x" ] && nef_usage_error
+
+# todo
+[ "$nef_av_opt_audio_only" = yes ] && nef_fatal "--audio is not supported at the moment"
+
+nef_av_debug "ARGUMENTS:" && declare -p | grep nef_av_command_argv | nef_increment_text
+nef_av_debug "OPTIONS:" && declare -p | grep nef_av_opt | nef_increment_text
+
+
+######################################################################
+# MERGE OPTIONS
+
+if test "$nef_av_opt_nodefaults" = no; then
+    # merge /etc/default/nef-av unless --no-defaults is given
+    if test -f $NEF_AV_CONFIG_DEFAULT; then
+        nef_av_verbose "Loading $NEF_AV_CONFIG_DEFAULT (use --no-defaults to avoid)"
+        . $NEF_AV_CONFIG_DEFAULT
+    else
+        nef_av_verbose "Not loading $NEF_AV_CONFIG_DEFAULT (does not exist)"
+    fi
+else
+    nef_av_verbose "Not loading $NEF_AV_CONFIG_DEFAULT (because of --no-defaults)"
+fi
+
+
+######################################################################
+# RUNTIME
+
+nef_av_command_function_name="nef_av_command_${nef_av_command_argv[0]}"
+$nef_av_command_function_name "${nef_av_command_argv[@]}" \
+    || nef_fatal "command ${nef_av_command_argv[0]} returned status $?"
+nef_log "Command returned successfully."
