@@ -9,17 +9,22 @@ sysconf_require_packages nodejs \
 
 # Install NPM
 if [ ! -x /usr/bin/npm ]; then
+    nef_log "Installing NPM..."
     curl https://www.npmjs.org/install.sh | sh \
         || nef_fatal "could not install npm"
 fi
 
 # 'forever' come from NPM and provide NodeJS process management
-npm install -g forever \
-    || nef_fatal "could not install npm module: forever"
+if ! npm list forever -g >/dev/null; then
+    nef_log "Installing 'forever'..."
+    npm install -g forever \
+        || nef_fatal "could not install npm module: forever"
+fi
 
 # Manage the textree service
-
-update-rc.d textree defaults
+if [ 0 -eq $(find /etc/rc*.d -name '*[0-9]textree' | wc -l) ]; then
+    update-rc.d textree defaults
+fi
 
 if service textree status >/dev/null; then
     service textree restart \
