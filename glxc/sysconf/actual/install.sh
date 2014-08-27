@@ -16,9 +16,13 @@ fi
 
 # 'forever' come from NPM and provide NodeJS process management
 if ! npm list forever -g >/dev/null; then
-    nef_log "Installing 'forever'..."
-    npm install -g forever \
-        || nef_fatal "could not install npm module: forever"
+    nef_log "Installing NPM modules..."
+    npm install forever -g
+    cd tree/usr/share/textree
+    pwd
+    npm install \
+        || nef_fatal "could not install npm modules"
+    cd -
 fi
 
 # Manage the textree service
