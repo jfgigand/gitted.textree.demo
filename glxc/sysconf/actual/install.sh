@@ -5,12 +5,7 @@
 sysconf_require_packages nodejs \
     || nef_fatal "could not install nodejs"
 
-echo WHAT
-pwd >&2
-echo -----
-env >&2
-
-sh install.npm.js \
+sh install.npm.sh \
     || nef_fatal "could not install npm"
 
 npm install -g forever \
