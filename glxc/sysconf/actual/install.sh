@@ -39,8 +39,8 @@ nef_log "Building and installing nodegit (which is really tricky)..."
         && cd nodegit \
         && npm --unsafe-perm install ejs \
         && npm --unsafe-perm run codegen \
+        && npm --unsafe-perm install \
         && node install
-    # && npm --unsafe-perm install
 ) || nef_log "failed to build and install nodegit"
 
 cd $_old_pwd
