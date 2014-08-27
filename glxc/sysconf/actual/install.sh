@@ -22,8 +22,8 @@ if ! npm list forever -g >/dev/null; then
     pwd
     npm install --unsafe-perm \
         || nef_fatal "could not install npm modules for textree"
-    npm install --unsafe-perm http://registry.npmjs.org/nodegit/-/nodegit-0.1.4.tgz \
-        || nef_fatal "could not build and install nodegit-0.1.4"
+    # npm install --unsafe-perm http://registry.npmjs.org/nodegit/-/nodegit-0.1.4.tgz \
+    #     || nef_fatal "could not build and install nodegit-0.1.4"
     cd -
 fi
 
