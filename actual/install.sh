@@ -3,11 +3,11 @@
 . /usr/lib/sysconf.base/common.sh
 
 # Debian wheezy does not have git-subtree
-if [ ! -f /usr/lib/git-core/subtree ]; then
-    cp resource/git-subtree /usr/lib/git-core/subtree \
-        && chmod +x /usr/lib/git-core/subtree \
-        || nef_fatal "could not install git-subtree"
-fi
+# if [ ! -f /usr/lib/git-core/subtree ]; then
+#     cp resource/git-subtree /usr/lib/git-core/git-subtree \
+#         && chmod +x /usr/lib/git-core/git-subtree \
+#         || nef_fatal "could not install git-subtree"
+# fi
 
 # Install NodeJS and fix bon/node -> nodejs
 sysconf_require_packages nodejs \
