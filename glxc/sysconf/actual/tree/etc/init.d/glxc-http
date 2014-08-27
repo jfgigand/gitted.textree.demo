@@ -60,8 +60,13 @@ PIDFILE="/var/run/glxc-http.pid"
 # Log file path.
 LOGFILE="/var/log/glxc-http"
 # Forever settings to prevent the application spinning if it fails on launch.
-MIN_UPTIME=""
-SPIN_SLEEP_TIME=""
+# Minimum uptime (millis) for a script to not be considered "spinning"
+MIN_UPTIME="10"
+# Time to wait (millis) between launches of a spinning script.
+SPIN_SLEEP_TIME="100"
+
+OUTPUT_LOGFILE=/var/log/glxc-http
+ERROR_LOGFILE=/var/log/glxc-http
 
 export GLXC_HTTP_PORT=80
 
@@ -96,6 +101,8 @@ start() {
       --pidFile $PIDFILE \
       -a \
       -l $LOGFILE \
+      -o $OUTPUT_LOGFILE \
+      -e $ERROR_LOGFILE \
       --minUptime $MIN_UPTIME \
       --spinSleepTime $SPIN_SLEEP_TIME \
       start $APPLICATION_PATH 2>&1 > /dev/null &
