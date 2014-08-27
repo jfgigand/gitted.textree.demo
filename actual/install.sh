@@ -17,14 +17,14 @@ fi
 npm install -g forever \
     || nef_fatal "could not install npm module: forever"
 
-# Manage the glxc-http service
+# Manage the textree service
 
-update-rc.d glxc-http defaults
+update-rc.d textree defaults
 
-if service glxc-http status >/dev/null; then
-    service glxc-http restart \
-        || nef_fatal "could not restart glxc-http"
+if service textree status >/dev/null; then
+    service textree restart \
+        || nef_fatal "could not restart textree"
 else
-    service glxc-http start \
-        || nef_fatal "could not start glxc-http"
+    service textree start \
+        || nef_fatal "could not start textree"
 fi
