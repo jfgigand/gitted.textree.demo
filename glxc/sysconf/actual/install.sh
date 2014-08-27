@@ -18,13 +18,24 @@ fi
 if ! npm list forever -g >/dev/null; then
     nef_log "Installing NPM modules..."
     npm install forever -g
+    _old_pwd=$PWD
     cd tree/usr/share/textree
-    pwd
     npm install --unsafe-perm \
         || nef_fatal "could not install npm modules for textree"
-    npm install --unsafe-perm --verbose http://registry.npmjs.org/nodegit/-/nodegit-0.1.4.tgz \
-        || nef_fatal "could not build and install nodegit-0.1.4"
-    cd -
+    # npm install --unsafe-perm --verbose http://registry.npmjs.org/nodegit/-/nodegit-0.1.4.tgz \
+    #     || nef_fatal "could not build and install nodegit-0.1.4"
+    nef_log "Building and installing nodegit (which is really tricky)..."
+    (
+        cd node_modules \
+            && mkdir nodegit \
+            && curl http://registry.npmjs.org/nodegit/-/nodegit-0.1.4.tgz \
+            | tar xz --strip-components=1 -C ./nodegit \
+            && cd nodegit \
+            && npm --unsafe-perm install ejs \
+            && npm --unsafe-perm run codegen \
+            && npm --unsafe-perm install
+    ) || nef_log "failed to build and install nodegit"
+    cd $_old_pwd
 fi
 
 # Manage the textree service
