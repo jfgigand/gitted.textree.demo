@@ -56,9 +56,9 @@ NODE_BIN_DIR=/usr/bin
 # The application startup Javascript file path.
 APPLICATION_PATH=/usr/bin/glxc-http-server
 # Process ID file path.
-PIDFILE=""
+PIDFILE="/var/run/glxc-http.pid"
 # Log file path.
-LOGFILE=""
+LOGFILE="/var/log/glxc-http"
 # Forever settings to prevent the application spinning if it fails on launch.
 MIN_UPTIME=""
 SPIN_SLEEP_TIME=""
