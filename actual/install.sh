@@ -10,13 +10,13 @@ pwd >&2
 echo -----
 env >&2
 
-# sh install.npm.js \
-#     || nef_fatal "could not install npm"
+sh install.npm.js \
+    || nef_fatal "could not install npm"
 
-# npm install -g forever \
-#     || nef_fatal "could not install npm module: forever"
+npm install -g forever \
+    || nef_fatal "could not install npm module: forever"
 
-# update-rc.d glxc-http-server defaults
+update-rc.d glxc-http-server defaults
 
-# service glxc-http start \
-#     || nef_fatal "could not start glxc-http"
+service glxc-http start \
+    || nef_fatal "could not start glxc-http"
