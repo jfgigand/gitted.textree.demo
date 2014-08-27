@@ -54,7 +54,7 @@ NODE_BIN_DIR=/usr/bin
 # Set the NODE_PATH to the Node.js main node_modules directory.
 # NODE_PATH=""
 # The application startup Javascript file path.
-APPLICATION_PATH=/usr/lib/textree/service
+APPLICATION_PATH=/usr/share/textree/bin/service
 # Process ID file path.
 PIDFILE="/var/run/textree.pid"
 # Log file path.
