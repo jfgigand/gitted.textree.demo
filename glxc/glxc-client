@@ -253,6 +253,13 @@ glxc_ensure_container_running() {
         sleep 1
     fi
 
+    if [ -f ~/.ssh/id_dsa.pub ]; then
+        nef_log "copy ~/.ssh/id_dsa.pub to ${_name}:/root/.ssh/authorized_keys's "
+        cat ~/.ssh/id_dsa.pub \
+            | lxc-attach --clear-env -n $_name \
+            -- sh -c 'mkdir -p ~/.ssh && cat >~/.ssh/authorized_keys'
+    fi
+
     lxc-attach --clear-env -n $_name -- test -d /sysconf || {
         nef_log "sysconf is not defined. extracting from commit $glxc_executive_treeish"
         git archive $glxc_executive_treeish glxc/sysconf/ \
