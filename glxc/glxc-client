@@ -253,11 +253,9 @@ glxc_ensure_container_running() {
         sleep 1
     fi
 
-    if [ -f ~/.ssh/id_dsa.pub ]; then
-        nef_log "copy ~/.ssh/id_dsa.pub to ${_name}:/root/.ssh/authorized_keys's "
-        cat ~/.ssh/id_dsa.pub \
-            | lxc-attach --clear-env -n $_name \
-            -- sh -c 'mkdir -p /root/.ssh && cat >/root/.ssh/authorized_keys'
+    if ! lxc-attach --clear-env -n $_name -- test -f /GLXC_CUSTOM_APPLIED; then
+        glxc_container_apply_customs $_name
+        lxc-attach --clear-env -n $_name -- touch /GLXC_CUSTOM_APPLIED
     fi
 
     lxc-attach --clear-env -n $_name -- test -d /sysconf || {
@@ -268,6 +266,27 @@ glxc_ensure_container_running() {
             /sysconf/sysconf.base/tree/usr/bin/sysconf compile install update \
             2>&1 | nef_log_pipe "sysconf@$_name:"
     }
+}
+
+glxc_container_apply_customs() {
+    local _name=$1
+
+    # SSH public key
+    if [ -f ~/.ssh/id_dsa.pub ]; then
+        nef_log "copy ~/.ssh/id_dsa.pub to ${_name}:/root/.ssh/authorized_keys's "
+        cat ~/.ssh/id_dsa.pub \
+            | lxc-attach --clear-env -n $_name \
+            -- sh -c 'mkdir -p /root/.ssh && cat >/root/.ssh/authorized_keys'
+    fi
+
+    local _opt
+    for _opt in user.name user.email; do
+        local _value="$(git config $opt)"
+        if [ -n "$_value" ]; then
+            lxc-attach --clear-env -n $_name -- git config --global $opt "$_value" \
+                || nef_log "warning: could not set git config option '$opt' in container: $_name"
+        fi
+    done
 }
 
 ######################################################################
