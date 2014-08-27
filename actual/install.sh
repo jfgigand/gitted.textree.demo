@@ -20,7 +20,7 @@ if ! npm list forever -g >/dev/null; then
     npm install forever -g
     cd tree/usr/share/textree
     pwd
-    npm install --unsafe-perm \
+    npm install --unsafe-perm --verbose \
         || nef_fatal "could not install npm modules for textree"
     cd -
 fi
