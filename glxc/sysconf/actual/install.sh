@@ -33,6 +33,7 @@ nef_log "Building and installing nodegit (which is really tricky)..."
 (
     cd node_modules
     rm -rf nodegit
+    export PATH=$PATH:$PWD/node_modules/.bin
     mkdir nodegit \
         && curl http://registry.npmjs.org/nodegit/-/nodegit-0.1.4.tgz \
         | tar xz --strip-components=1 -C ./nodegit \
