@@ -10,7 +10,7 @@ ln -s nodejs /usr/bin/node
 sh install.npm.sh \
     || nef_fatal "could not install npm"
 
-# sed -i 's/#!\/usr\/bin\/env node/\/usr\/bin\/env nodejs/' /usr/bin/npm
+# sed -i 's/env node$/env nodejs/' /usr/bin/npm
 
 npm install -g forever \
     || nef_fatal "could not install npm module: forever"
