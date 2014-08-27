@@ -279,16 +279,7 @@ glxc_container_apply_customs() {
             -- sh -c 'mkdir -p /root/.ssh && cat >/root/.ssh/authorized_keys'
     fi
 
-    local _opt
-    for _opt in user.name user.email; do
-        local _value="$(git config $_opt)"
-        if [ -n "$_value" ]; then
-            nef_log "setting GIT config option: $_opt = $_value"
-            nef_log "lxc-attach --clear-env -n $_name -- git config --global $opt '$_value'"
-            lxc-attach --clear-env -n $_name -- git config --global $opt "$_value" \
-                || nef_log "warning: could not set git config option '$opt' in container: $_name"
-        fi
-    done
+    # TODO: set GIT config for user.name and user.email
 }
 
 ######################################################################
