@@ -25,7 +25,7 @@ fi
 if [ 0 -eq $(find /etc/rc*.d -name '*[0-9]textree' | wc -l) ]; then
     update-rc.d textree defaults
 fi
-nef_log lala
+
 if service textree status >/dev/null; then
     service textree restart \
         || nef_fatal "could not restart textree"
