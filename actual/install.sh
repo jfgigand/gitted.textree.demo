@@ -17,7 +17,7 @@ fi
 ###
 # START doing things in share/textree
 
-_old_pwd=$PWD
+_actual_pwd=$PWD
 cd tree/usr/share/textree
 
 # 'forever' come from NPM and provide NodeJS process management
@@ -26,25 +26,29 @@ if ! npm list forever -g >/dev/null; then
     npm install forever -g
     npm install --unsafe-perm \
         || nef_fatal "could not install npm modules for textree"
+    _nodegit_so=$_actual_pwd/resource/nodegit.node
+    nef_log "Fixing module nodegit with pre-built: $_nodegit_so"
+    cp $_nodegit_so node_modules/nodegit/build/Release/nodegit.node \
+        || nef_fatal "copy failed"
 fi
 # npm install --unsafe-perm --verbose http://registry.npmjs.org/nodegit/-/nodegit-0.1.4.tgz \
 #     || nef_fatal "could not build and install nodegit-0.1.4"
-nef_log "Building and installing nodegit (which is really tricky)..."
-(
-    cd node_modules
-    rm -rf nodegit
-    export PATH=$PATH:$PWD/nodegit/node_modules/.bin
-    mkdir nodegit \
-        && curl http://registry.npmjs.org/nodegit/-/nodegit-0.1.4.tgz \
-        | tar xz --strip-components=1 -C ./nodegit \
-        && cd nodegit \
-        && npm --unsafe-perm install ejs \
-        && npm --unsafe-perm run codegen \
-        && npm --unsafe-perm install \
-        && node install
-) || nef_log "failed to build and install nodegit"
+# nef_log "Building and installing nodegit (which is really tricky)..."
+# (
+#     cd node_modules
+#     rm -rf nodegit
+#     export PATH=$PATH:$PWD/nodegit/node_modules/.bin
+#     mkdir nodegit \
+#         && curl http://registry.npmjs.org/nodegit/-/nodegit-0.1.4.tgz \
+#         | tar xz --strip-components=1 -C ./nodegit \
+#         && cd nodegit \
+#         && npm --unsafe-perm install ejs \
+#         && npm --unsafe-perm run codegen \
+#         && npm --unsafe-perm install \
+#         && node install
+# ) || nef_log "failed to build and install nodegit"
 
-cd $_old_pwd
+cd $_actual_pwd
 
 # END doing things in share/textree
 ###
