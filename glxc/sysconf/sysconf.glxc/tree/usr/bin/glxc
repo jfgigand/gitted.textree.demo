@@ -117,9 +117,11 @@ glxc_run_hooks() {
     local _name=$1
     local _dir=/etc/glxc/hook/${_name}.d
 
-    for hook in $(find $_dir -type f -and -executable); do
-        $hook | nef_log_pipe "${hook}:"
-    done
+    if [ -d $_dir ]; then
+        for hook in $(find $_dir -type f -and -executable); do
+            $hook | nef_log_pipe "${hook}:"
+        done
+    fi
 }
 
 # glxc_export_git_state() {
