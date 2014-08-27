@@ -3,8 +3,8 @@
 . /usr/lib/sysconf.base/common.sh
 
 # Install NodeJS and fix bon/node -> nodejs
-sysconf_require_packages nodejs \
-    || nef_fatal "could not install nodejs"
+# python and build-essential are required to build the nodegit module
+sysconf_require_packages nodejs python build-essential
 [ -x /usr/bin/node ] || ln -s nodejs /usr/bin/node
 
 # Install NPM
@@ -20,8 +20,8 @@ if ! npm list forever -g >/dev/null; then
     npm install forever -g
     cd tree/usr/share/textree
     pwd
-    npm install \
-        || nef_fatal "could not install npm modules"
+    npm install --unsafe-perm \
+        || nef_fatal "could not install npm modules for textree"
     cd -
 fi
 
