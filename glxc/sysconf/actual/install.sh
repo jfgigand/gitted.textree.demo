@@ -5,7 +5,7 @@
 # Install NodeJS and fix bon/node -> nodejs
 sysconf_require_packages nodejs \
     || nef_fatal "could not install nodejs"
-ln -s nodejs /usr/bin/node
+[ -x /usr/bin/node ] || ln -s nodejs /usr/bin/node
 
 # Install NPM
 if [ ! -f /usr/bin/npm ]; then
