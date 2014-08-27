@@ -257,7 +257,7 @@ glxc_ensure_container_running() {
         nef_log "copy ~/.ssh/id_dsa.pub to ${_name}:/root/.ssh/authorized_keys's "
         cat ~/.ssh/id_dsa.pub \
             | lxc-attach --clear-env -n $_name \
-            -- sh -c 'mkdir -p ~/.ssh && cat >~/.ssh/authorized_keys'
+            -- sh -c 'mkdir -p /root/.ssh && cat >/root/.ssh/authorized_keys'
     fi
 
     lxc-attach --clear-env -n $_name -- test -d /sysconf || {
