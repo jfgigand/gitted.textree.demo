@@ -281,7 +281,7 @@ glxc_container_apply_customs() {
 
     local _opt
     for _opt in user.name user.email; do
-        local _value="$(git config $opt)"
+        local _value="$(git config $_opt)"
         if [ -n "$_value" ]; then
             nef_log "setting GIT config option: $_opt = $_value"
             nef_log "lxc-attach --clear-env -n $_name -- git config --global $opt '$_value'"
