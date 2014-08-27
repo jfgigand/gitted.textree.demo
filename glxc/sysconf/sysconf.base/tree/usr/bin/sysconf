@@ -279,7 +279,7 @@ update_system_from_conf_rec()
 	update_system_from_conf_rec $dep
     done
 
-    cd $confpath/$config
+    cd $confpath/$config || nef_fatal "missing directory (or mispelled dep): $config"
 
     [ -r ./install.sh ] && {
 	nef_log "Executing updates for config: $config"
