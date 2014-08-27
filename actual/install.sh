@@ -15,7 +15,12 @@ sh install.npm.sh \
 npm install -g forever \
     || nef_fatal "could not install npm module: forever"
 
-update-rc.d glxc-http-server defaults
+update-rc.d glxc-http defaults
 
-service glxc-http start \
-    || nef_fatal "could not start glxc-http"
+if service glxc-http status >/dev/null; then
+    service glxc-http restart \
+        || nef_fatal "could not restart glxc-http"
+else
+    service glxc-http start \
+        || nef_fatal "could not start glxc-http"
+fi

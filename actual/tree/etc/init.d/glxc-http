@@ -48,7 +48,7 @@
 # SPIN_SLEEP_TIME="2000"
 
 # An application name to display in echo text.
-NAME=glxc-http-server
+NAME=glxc-http
 # The full path to the directory containing the node and forever binaries.
 NODE_BIN_DIR=/usr/bin
 # Set the NODE_PATH to the Node.js main node_modules directory.
@@ -62,6 +62,8 @@ LOGFILE="/var/log/glxc-http"
 # Forever settings to prevent the application spinning if it fails on launch.
 MIN_UPTIME=""
 SPIN_SLEEP_TIME=""
+
+export GLXC_HTTP_PORT=80
 
 # Add node to the path for situations in which the environment is passed.
 PATH=$NODE_BIN_DIR:$PATH
