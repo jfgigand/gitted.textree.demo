@@ -8,7 +8,7 @@ sysconf_require_packages nodejs \
 [ -x /usr/bin/node ] || ln -s nodejs /usr/bin/node
 
 # Install NPM
-if [ ! -f /usr/bin/npm ]; then
+if [ ! -x /usr/bin/npm ]; then
     curl https://www.npmjs.org/install.sh | sh \
         || nef_fatal "could not install npm"
 fi
