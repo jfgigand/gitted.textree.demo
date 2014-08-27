@@ -118,7 +118,7 @@ glxc_run_hooks() {
     local _dir=/etc/glxc/hook/${_name}.d
 
     if [ -d $_dir ]; then
-        for hook in $(find $_dir -type f -and -executable); do
+        for hook in $(find $_dir -executable -and -not -type d); do
             $hook | nef_log_pipe "${hook}:"
         done
     fi
