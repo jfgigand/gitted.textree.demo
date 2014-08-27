@@ -254,7 +254,7 @@ glxc_ensure_container_running() {
     fi
 
     lxc-attach --clear-env -n $_name -- test -d /sysconf || {
-        nef_log "sysconf is not defined. extracting from $glxc_executive_treeish..."
+        nef_log "sysconf is not defined. extracting from commit $glxc_executive_treeish"
         git archive $glxc_executive_treeish glxc/sysconf/ \
             | lxc-attach --clear-env -n $_name -- tar x -C / --strip-components=1 >&2
         lxc-attach --clear-env -n $_name -- \

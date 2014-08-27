@@ -5,16 +5,18 @@
 sysconf_require_packages nodejs \
     || nef_fatal "could not install nodejs"
 
-pwd
+echo WHAT
+pwd >&2
 echo -----
-env
-sh install.npm.js \
-    || nef_fatal "could not install npm"
+env >&2
 
-npm install -g forever \
-    || nef_fatal "could not install npm module: forever"
+# sh install.npm.js \
+#     || nef_fatal "could not install npm"
 
-update-rc.d glxc-http-server defaults
+# npm install -g forever \
+#     || nef_fatal "could not install npm module: forever"
 
-service glxc-http start \
-    || nef_fatal "could not start glxc-http"
+# update-rc.d glxc-http-server defaults
+
+# service glxc-http start \
+#     || nef_fatal "could not start glxc-http"
