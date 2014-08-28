@@ -28,42 +28,21 @@ if [ -d /sysconf/.git ]; then
             # Clone a non-bare repository our of the central local one, to please git-subtree
             temp_branch=$(date +T%s)
             clone_path=/tmp/$temp_branch
-            # git clone $local_git_dir $clone_path 2>&1 | nef_log_pipe "git-clone:" || nef_fatal "git clone failed"
-            nef_log "Copying $local_git_dir to: $clone_path/.git"
-
+            nef_log "Cloning $local_git_dir to: $clone_path[/.git]"
             nef_cmd -- mkdir $clone_path
             nef_cmd -- cp -a $local_git_dir $clone_path/.git
             cd $clone_path
             nef_cmd --log-prefix git-config -- git config --bool core.bare false
             nef_cmd --log-prefix git-symbolic-ref -- git symbolic-ref HEAD refs/heads/master
             nef_cmd --log-prefix git-readtree -- git read-tree HEAD
-            nef_cmd --print -- pwd
-
             nef_cmd --log-prefix git-checkout-index -- git checkout-index -u -a
-            nef_cmd --print -- ls -l $clone_path
-
-
-# mkdir $clone_path || nef_fatal "mkdir has failed"
-# cp -a $local_git_dir $clone_path/.git 2>&1 | nef_log_pipe "cp:" || nef_fatal "cp(1) has failed"
-# cd $clone_path
-# git config --bool core.bare false || nef_fatal
-# git read-tree HEAD 2>&1 | nef_log_pipe "git-read-tree:" || nef_fatal "git-readtree(1) has failed"
-# [ ${PIPESTATUS[0]} -ne 0 ] && nef_fatal "git-readtree(1) failed with status ${PIPESTATUS[0]}"
-# git checkout-index -u -a 2>&1 | nef_log_pipe "git-checkout-index:"
-# [ ${PIPESTATUS[0]} -ne 0 ] && nef_fatal "git-checkout-index(1) failed with status ${PIPESTATUS[0]}"
             nef_log "Done cloning."
 
             nef_log "Executing: git subtree pull -P '$GLXC_DATA_PATH' /sysconf master"
             nef_cmd --log-prefix git-subtree -- git subtree pull -P $GLXC_DATA_PATH /sysconf master \
                 -m "Automatic merge (git-subtree pull) by $0 on $(hostname)"
-
-            # git subtree pull -P $GLXC_DATA_PATH /sysconf master \
-            #     -m "Automatic merge (git-subtree pull) by $0 on $(hostname)" 2>&1 | nef_log_pipe "git-subtree:"
-            # _status=${PIPESTATUS[0]}
-            # [ $_status -ne 0 ] && nef_fatal "git-subtree(1) failed with status $_status"
-
             nef_cmd --log-prefix git-push -- git push $local_git_dir master
-            # git push origin master 2>&1 | nef_log_pipe "git-push:" || nef_fatal "git push failed"
+            nef_log "Done pushing back the merge to: $local_git_dir <master>"
 
             cd /sysconf
             rm -rf $clone_path
