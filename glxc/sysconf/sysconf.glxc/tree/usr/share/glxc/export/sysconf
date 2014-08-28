@@ -62,7 +62,8 @@ if [ -d /sysconf/.git ]; then
             # _status=${PIPESTATUS[0]}
             # [ $_status -ne 0 ] && nef_fatal "git-subtree(1) failed with status $_status"
 
-            git push origin master 2>&1 | nef_log_pipe "git-push:" || nef_fatal "git push failed"
+            nef_cmd --log-prefix git-push -- git push $local_git_dir master
+            # git push origin master 2>&1 | nef_log_pipe "git-push:" || nef_fatal "git push failed"
 
             cd /sysconf
             rm -rf $clone_path
