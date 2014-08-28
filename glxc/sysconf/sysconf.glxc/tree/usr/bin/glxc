@@ -101,8 +101,9 @@ glxc_command_git() {
 }
 
 ######################################################################
-# FUNCTIONALITY
+# INTERNAL FUNCTIONALITY
 
+# usage: glxc_run_git_script { import | export }
 glxc_run_git_script() {
     op=$1
     for script in /etc/glxc/sync/*.$op; do
@@ -124,16 +125,6 @@ glxc_run_hooks() {
     fi
 }
 
-# glxc_export_git_state() {
-#     nef_log "Exporting GIT state..."
-#     for script in /etc/glxc/sync/*.export; do
-#         name=$(basename $script)
-#         $script 2>&1 | nef_log_pipe "<$name>"
-#     done
-#     # for module in mongodb; do
-#     #     /usr/share/glxc/export/$module 2>&1 | nef_log_pipe "<$module>"
-#     # done
-# }
 
 ######################################################################
 # COMMAND LINE & RUN
