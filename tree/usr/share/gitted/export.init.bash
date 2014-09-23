@@ -11,7 +11,7 @@ _git()
 
 gitted_state_ref_name()
 {
-    name=$1
+    name=$(echo "$1" | sed 's/[^a-zA-Z0-9._-]//g')
     echo refs/gitted-state/$GITTED_GIT_BRANCH/$name
 }
 

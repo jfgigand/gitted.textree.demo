@@ -3,6 +3,8 @@
 # GITTED IMPORT: GIT files -> SYSCONF
 #
 
+# exec /usr/share/gitted/git-working-tree "$@"
+
 . /usr/share/gitted/import.init.bash || exit 2
 
 [ -z "$GITTED_DATA_PATH" ] && nef_fatal "missing variable: GITTED_DATA_PATH"
@@ -41,8 +43,8 @@ if [ "$(git ls-tree $state_ref $GITTED_DATA_PATH 2>/dev/null)" \
         # We push to a new branch, then checkout from there and let GIT refuse it
         # if there are uncommitted changes that conflict with the checkout.
 
-        # not using --rejoin, to avoid creating a (weird) non-explicit commit
-        git subtree split -P $GITTED_DATA_PATH -b sysconf-tree || nef_fatal "git subtree failed"
+        # // not using --rejoin, to avoid creating a (weird) non-explicit commit
+        git subtree split -P $GITTED_DATA_PATH -b sysconf-tree --rejoin || nef_fatal "git subtree failed"
         git push /sysconf sysconf-tree:$temp_branch || nef_fatal "git push failed"
 
         cd /sysconf

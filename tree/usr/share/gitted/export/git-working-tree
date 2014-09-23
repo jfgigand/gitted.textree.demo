@@ -1,0 +1,78 @@
+#!/bin/bash
+#
+# GITTED EXPORT: Git working tree -> subtree in GIT /local.repository.git
+#
+
+. /usr/share/gitted/export.init.bash || exit 2
+
+[ -z "$GITTED_DATA_PATH" ] && nef_fatal "missing variable: GITTED_DATA_PATH"
+[ -z "$GITTED_WORKING_TREE" ] && nef_fatal "missing variable: GITTED_WORKING_TREE"
+
+state_ref=$(gitted_state_ref_name $GITTED_WORKING_TREE)
+
+if [ -d $GITTED_WORKING_TREE/.git ]; then
+
+    (
+        local_git_dir=$GIT_DIR # local_git_dir is the path to "/local.repository.git"
+        unset GIT_DIR
+        unset GIT_WORK_TREE
+        unset GIT_INDEX
+
+        cd $GITTED_WORKING_TREE
+
+        # "$state_ref" in the $GITTED_WORKING_TREE dir points to the commit that was
+        # last merged into $local_git_dir
+        if [ "$(git show-ref -s $state_ref)" != "$(git show-ref -s refs/heads/master)" ]; then
+
+            nef_log "$GITTED_WORKING_TREE head master has changed. Integrating back the changes..."
+
+            # Clone a non-bare repository our of the central local one, to please git-subtree
+            temp_branch=$(date +T%s)
+            clone_path=/tmp/$temp_branch
+            nef_log "Cloning $local_git_dir to: $clone_path[/.git]"
+            nef_cmd -- mkdir $clone_path
+            nef_cmd -- cp -a $local_git_dir $clone_path/.git
+            cd $clone_path
+            nef_cmd --log-prefix git-config -- git config --bool core.bare false
+            nef_cmd --log-prefix git-symbolic-ref -- git symbolic-ref HEAD refs/heads/master
+            nef_cmd --log-prefix git-readtree -- git read-tree HEAD
+            nef_cmd --log-prefix git-checkout-index -- git checkout-index -u -a
+            nef_log "Done cloning."
+
+            # commit=$(git subtree split -P $GITTED_DATA_PATH)
+            # nef_log "split commit: $commit"
+            # git fetch $GITTED_WORKING_TREE master
+            # git rebase $commit FETCH_HEAD
+            temp_branch=$(date +T%s)
+            nef_cmd --log-prefix git-subtree-split -- git subtree split -P $GITTED_DATA_PATH --rejoin -b $temp_branch
+            # nef_cmd --log-prefix git-fetch -- git fetch $GITTED_WORKING_TREE master
+            nef_log "Executing: git fetch $GITTED_WORKING_TREE master"
+            nef_cmd --log-prefix git-fetch -- git fetch $GITTED_WORKING_TREE master
+            nef_log "Executing: git subtree merge -P '$GITTED_DATA_PATH' FETCH_HEAD"
+            nef_cmd --log-prefix git-subtree -- git subtree merge -P $GITTED_DATA_PATH FETCH_HEAD \
+                -m "Automatic merge (git-subtree pull) by $0 on $(hostname)"
+            # nef_log "Executing: git subtree pull -P '$GITTED_DATA_PATH' $GITTED_WORKING_TREE master"
+            # nef_cmd --log-prefix git-subtree -- git subtree pull -P $GITTED_DATA_PATH $GITTED_WORKING_TREE master \
+            #     -m "Automatic merge (git-subtree pull) by $0 on $(hostname)"
+            nef_cmd --log-prefix git-push -- git push $local_git_dir master
+            nef_log "Done pushing back the merge to: $local_git_dir <master>"
+
+            cd $GITTED_WORKING_TREE
+            rm -rf $clone_path
+
+            message="update after exporting $GITTED_WORKING_TREE (as a subtree) to the local repository"
+            git update-ref -m "$message" $state_ref refs/heads/master
+
+            cd $local_git_dir
+            message="update after subtree merge of: $GITTED_WORKING_TREE"
+            git update-ref -m "$message" $state_ref refs/heads/$GITTED_GIT_BRANCH $gitted_last_commit
+
+        else
+            nef_log "No change committed in $GITTED_WORKING_TREE in branch master"
+        fi
+
+    ) || nef_fatal "sub-command failed"
+
+else
+    nef_log "$GITTED_WORKING_TREE/.git does not exist, ignored."
+fi
