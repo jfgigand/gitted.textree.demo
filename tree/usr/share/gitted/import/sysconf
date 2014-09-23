@@ -5,75 +5,85 @@
 
 # exec /usr/share/gitted/git-working-tree "$@"
 
-. /usr/share/gitted/import.init.bash || exit 2
 
-[ -z "$GITTED_DATA_PATH" ] && nef_fatal "missing variable: GITTED_DATA_PATH"
+GITTED_WORKING_TREE=/sysconf
 
-state_ref=$(gitted_state_ref_name sysconf)
+POST_UPDATE() {
+    sysconf compile install update | nef_log_pipe "sysconf:"
+}
 
-if [ "$(git ls-tree $state_ref $GITTED_DATA_PATH 2>/dev/null)" \
-    != "$(git ls-tree $gitted_new_commit $GITTED_DATA_PATH)" ]; then
-
-    nef_log "SYSCONF data has changed in repository. Updating local sysconf..."
-
-    (
-        local_git_dir=$GIT_DIR
-        unset GIT_DIR
-        unset GIT_WORK_TREE
-        unset GIT_INDEX
-
-        if [ ! -d /sysconf/.git ]; then
-            nef_log "/sysconf is not a GIT repository. Initializing..."
-            mkdir -p /sysconf
-            cd /sysconf
-            git init . || nef_fatal "git init failed"
-            # git config --local receive.denyCurrentBranch ignore || nef_fatal "git config failed"
-
-            fresh=yes
-        fi
-
-        # Clone a non-bare repository our of the central local one, to please git-subtree
-        temp_branch=$(date +T%s)
-        clone_path=/tmp/$temp_branch
-        nef_log "cloning to $clone_path"
-        git clone $local_git_dir $clone_path || nef_fatal "git clone failed"
-        cd $clone_path
-        git checkout $gitted_new_commit
-
-        # We push to a new branch, then checkout from there and let GIT refuse it
-        # if there are uncommitted changes that conflict with the checkout.
-
-        # // not using --rejoin, to avoid creating a (weird) non-explicit commit
-        git subtree split -P $GITTED_DATA_PATH -b sysconf-tree --rejoin || nef_fatal "git subtree failed"
-        git push /sysconf sysconf-tree:$temp_branch || nef_fatal "git push failed"
-
-        cd /sysconf
-        rm -rf $clone_path
-
-        _opts=
-        # [ "$fresh" = yes ] && _opts="--force"
-        # git checkout $_opts $temp_branch || nef_fatal "git checkout failed"
-        if [ "$fresh" = yes ]; then
-            git checkout --force $temp_branch || nef_fatal "git checkout failed"
-        else
-            git checkout $temp_branch || nef_fatal "git checkout failed"
-            git branch -D master || nef_fatal
-        fi
-        git checkout -b master
-        git branch -D $temp_branch
-
-        sysconf compile install update | nef_log_pipe "sysconf:"
-
-    ) || nef_fatal "sub-command failed"
+. /usr/share/gitted/import/git-subtree "$@"
 
 
-    # git subtree split -P $GITTED_DATA_PATH $gitted_new_commit
-    # [ -n "$sysconf_new_commit" ] || nef_fatal "git subtree failed"
-    # git push $sysconf_new_commit /sysconf
+# . /usr/share/gitted/import.init.bash || exit 2
 
-    nef_log "Sysconf data has been imported and applied."
-    git update-ref -m "import Sysconf data from $gitted_new_commit" $state_ref $gitted_new_commit
+# [ -z "$GITTED_DATA_PATH" ] && nef_fatal "missing variable: GITTED_DATA_PATH"
 
-else
-    nef_log "No change for path: $GITTED_DATA_PATH"
-fi
+# state_ref=$(gitted_state_ref_name sysconf)
+
+# if [ "$(git ls-tree $state_ref $GITTED_DATA_PATH 2>/dev/null)" \
+#     != "$(git ls-tree $gitted_new_commit $GITTED_DATA_PATH)" ]; then
+
+#     nef_log "SYSCONF data has changed in repository. Updating local sysconf..."
+
+#     (
+#         local_git_dir=$GIT_DIR
+#         unset GIT_DIR
+#         unset GIT_WORK_TREE
+#         unset GIT_INDEX
+
+#         if [ ! -d /sysconf/.git ]; then
+#             nef_log "/sysconf is not a GIT repository. Initializing..."
+#             mkdir -p /sysconf
+#             cd /sysconf
+#             git init . || nef_fatal "git init failed"
+#             # git config --local receive.denyCurrentBranch ignore || nef_fatal "git config failed"
+
+#             fresh=yes
+#         fi
+
+#         # Clone a non-bare repository our of the central local one, to please git-subtree
+#         temp_branch=$(date +T%s)
+#         clone_path=/tmp/$temp_branch
+#         nef_log "cloning to $clone_path"
+#         git clone $local_git_dir $clone_path || nef_fatal "git clone failed"
+#         cd $clone_path
+#         git checkout $gitted_new_commit
+
+#         # We push to a new branch, then checkout from there and let GIT refuse it
+#         # if there are uncommitted changes that conflict with the checkout.
+
+#         # not using --rejoin, to avoid creating a (weird) non-explicit commit
+#         git subtree split -P $GITTED_DATA_PATH -b sysconf-tree || nef_fatal "git subtree failed"
+#         git push /sysconf sysconf-tree:$temp_branch || nef_fatal "git push failed"
+
+#         cd /sysconf
+#         rm -rf $clone_path
+
+#         _opts=
+#         # [ "$fresh" = yes ] && _opts="--force"
+#         # git checkout $_opts $temp_branch || nef_fatal "git checkout failed"
+#         if [ "$fresh" = yes ]; then
+#             git checkout --force $temp_branch || nef_fatal "git checkout failed"
+#         else
+#             git checkout $temp_branch || nef_fatal "git checkout failed"
+#             git branch -D master || nef_fatal
+#         fi
+#         git checkout -b master
+#         git branch -D $temp_branch
+
+#         sysconf compile install update | nef_log_pipe "sysconf:"
+
+#     ) || nef_fatal "sub-command failed"
+
+
+#     # git subtree split -P $GITTED_DATA_PATH $gitted_new_commit
+#     # [ -n "$sysconf_new_commit" ] || nef_fatal "git subtree failed"
+#     # git push $sysconf_new_commit /sysconf
+
+#     nef_log "Sysconf data has been imported and applied."
+#     git update-ref -m "import Sysconf data from $gitted_new_commit" $state_ref $gitted_new_commit
+
+# else
+#     nef_log "No change for path: $GITTED_DATA_PATH"
+# fi
