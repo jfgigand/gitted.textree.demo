@@ -21,7 +21,7 @@ apt-cache show git >/dev/null 2>&1 \
     || nef_fatal "apt-get failed with status $?"
 
 
-sysconf_require_packages git curl
+sysconf_require_packages git curl sudo
 
 # Bring our own git-subtree if git is too old to provide it
 [ -x /usr/lib/git-core/git-subtree ] \
