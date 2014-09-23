@@ -54,13 +54,14 @@ if [ "$(git ls-tree $state_ref $GITTED_DATA_PATH 2>/dev/null)" \
         _opts=
         # [ "$fresh" = yes ] && _opts="--force"
         # git checkout $_opts $temp_branch || nef_fatal "git checkout failed"
-        if [ "$fresh" = yes ]; then
-            git checkout --force $temp_branch || nef_fatal "git checkout failed"
-        else
-            git checkout $temp_branch || nef_fatal "git checkout failed"
-            git branch -D master || nef_fatal
-        fi
-        git checkout -b master
+        git reset --hard $temp_branch || nef_fatal "git reset failed"
+        # if [ "$fresh" = yes ]; then
+        #     git checkout --force $temp_branch || nef_fatal "git checkout failed"
+        # else
+        #     git checkout $temp_branch || nef_fatal "git checkout failed"
+        #     git branch -D master || nef_fatal
+        # fi
+        # git checkout -b master
         git branch -D $temp_branch
 
         if declare -f POST_UPDATE >/dev/null; then
