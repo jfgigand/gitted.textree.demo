@@ -1,0 +1,91 @@
+#!/bin/bash
+#
+# Extends the lxc-debian LXC template to install a SYSCONF profile
+#
+# Examples:
+#   $ lxc-create -n test -t nef-sysconf -- <sysconf-profile-1> <sysconf-profile-2> ...
+#   $ lxc-create -n test -t nef-sysconf   # will install "sysconf.nef.common" by default
+#   $ LXC_NEF_SYSCONF_REPOSITORY_BASE=https://github.com/geonef/ \
+#       lxc-create -n aire --bdev=lvm --vgname my-vg --fssize=2G \
+#                  --template nef-sysconf -- sysconf.nef.common
+#
+# HISTORY
+#   20140225 First version
+#   20140706 Update and cleaning
+#
+# AUTHORS
+#   JF Gigand <jf@geonef.fr>
+#
+
+[ "x$LXC_NEF_SYSCONF_REPOSITORY_BASE" = x ] && \
+    LXC_NEF_SYSCONF_REPOSITORY_BASE=https://github.com/geonef/
+
+configure_sysconf()
+{
+    path=$1
+    rootfs=$2
+    hostname=$3
+    shift
+    shift
+    shift
+
+    profiles=( "$@" )
+
+    sysconf_setup=_sysconf-setup.sh
+
+    echo
+    echo "Installing sysconf..."
+    pwd
+
+    echo profiles: "${profiles[@]}"
+
+    mkdir -p $rootfs/sysconf/actual
+    ls -l $rootfs
+    ls -l $rootfs/sysconf
+
+    for profile in "${profiles[@]}"; do
+        echo " profile: $profile"
+        echo $profile >>$rootfs/sysconf/actual/deps
+        # cd $rootfs/sysconf/
+        # git clone $sysconfRemoteBase/$profile.git
+    done
+
+    echo SYSCONF /sysconf/actual/deps is:
+    cat $rootfs/sysconf/actual/deps
+    echo ------------
+    find $rootfs/sysconf/
+
+    echo $LXC_NEF_SYSCONF_REPOSITORY_BASE >$rootfs/sysconf/repository_base
+    SYSCONF_PATH=$rootfs/sysconf sysconf fetch
+
+    chroot $rootfs /sysconf/sysconf.base/tree/usr/bin/sysconf compile install update
+
+    return $?
+}
+
+
+# while true
+# do
+#     case "$1" in
+#         -b|--repository-base) LXC_NEF_SYSCONF_REPOSITORY_BASE=$2; shift; shift ;;
+#         *)              break ;;
+#     esac
+# done
+
+. /usr/share/lxc/templates/lxc-debian
+
+profiles=( "$@" )
+
+[ "${#profiles[@]}" -eq 0 ] && profiles=(sysconf.nef.common)
+
+configure_sysconf $path $rootfs $name "${profiles[@]}"
+
+if [ $? -ne 0 ]; then
+    echo "failed to configure sysconf"
+    exit 1
+fi
+
+echo
+echo "Container successfully created!"
+
+exit 0

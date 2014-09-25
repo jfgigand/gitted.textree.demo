@@ -1,0 +1,259 @@
+# BASH utilities for scripted commands               -*- shell-script -*-
+# $NEF_DIR_USER/usr/share/nef-common/shell-command
+#
+# Part of SYSCONF profile "sysconf.base"
+# https://github.com/geonef/sysconf.base
+#
+#
+# HISTORY
+#   20140707 Migrated from common.sh
+#
+# AUTHORS
+#   JF Gigand <jf@gigand.fr>
+#
+# EXAMPLE
+#   #!/bin/bash
+#   # this is an example of use of nef util shell-command
+#
+#   [ "x$NEF_DIR_USR" = x ] && NEF_DIR_USR=/usr
+#   . $NEF_DIR_USR/share/nef-common/shell-command
+#
+
+[ -z "$nef_command_name" ] && nef_command_name="$(basename "$0")"
+
+######################################################################
+# SETTINGS
+
+nef_command_init_options()
+{
+    nef_command_path=$0
+    nef_command_callname=$(basename $nef_command_path)
+    [ "x$nef_command_name" = x ] && nef_command_name=$nef_command_callname
+
+    nef_opt_show_verbose=no
+    nef_opt_show_debug=no
+}
+
+######################################################################
+# FUNTIONS
+
+nef_log() {
+    [ "x$NEF_LOG_FILE" = x ] && NEF_LOG_FILE="$LOG_FILE" # Legacy compat
+
+    declare _opt_verbose=no
+    declare _opt_debug=no
+    declare _opt_prepend=""
+
+    while [ "$1" != "" ]; do
+
+        case "$1" in
+            -p | --prepend) _opt_prepend="$2"; echo "prenddd..$2"; shift; shift ;;
+            -v | --verbose) _opt_verbose=yes; shift ;;
+            -d | --debug) _opt_debug=yes; shift ;;
+            -*) nef_log "nef_log(): bad option: $1"; shift ;;
+            *) break ;;
+        esac
+
+    done
+
+    [ $_opt_verbose = yes -a x$nef_opt_show_verbose = xno ] && return 0
+    [ $_opt_debug = yes -a x$nef_opt_show_debug = xno ] && return 0
+
+    local txt="$*"
+    local line="$*"
+    local prefix="$NEF_LOG_PREFIX"
+    [ -z "$prefix" ] && prefix="$nef_command_name"
+    [ "$NEF_LOG_PREFIX_NOCOLUMN" = yes ] || prefix="${prefix}: "
+    # prefix=$(basename $0)
+
+    if [ "x$NEF_LOG_DATE" = xyes ]; then
+        date="`date +'%Y-%m-%d %H:%M:%S:%N' | sed -E 's/.{6}$//'`"
+        prefix="$prefix $date"
+    fi
+
+    line="${prefix}${_opt_prepend}${line}"
+
+    if [ "$NEF_LOG_FILE" = "" ]; then
+        echo "$line" >&2
+    else
+        echo "$line" | tee -a $LOG_FILE >&2
+    fi
+}
+
+nef_log_pipe() {
+    local _opt_stdout=no
+
+    while true; do
+        case "$1" in
+            --stdout) _opt_stdout=yes; shift ;;
+            *) break ;;
+        esac
+    done
+
+    while read; do
+        nef_log "$@" "$REPLY"
+        [ $_opt_stdout = yes ] && echo "$REPLY"
+    done
+    return 0
+}
+
+nef_cmd()
+{
+    local _opt_log_prefix=
+    local _opt_stdname=no
+    local _opt_print=no
+
+    while [ "$1" != "" ]; do
+
+        case "$1" in
+            --log-prefix) _opt_log_prefix="$2"; shift; shift ;;
+            --stdname) _opt_stdname=yes; shift ;;
+            --print) _opt_print=yes; shift ;;
+            --) shift; break ;;
+            -*) nef_log "nef_log(): bad option: $1"; shift ;;
+            *) break ;;
+        esac
+
+    done
+
+    if [ -z "$_opt_log_prefix" ]; then
+        _opt_log_prefix="$1"
+    fi
+
+    local _stdout_prefix="${_opt_log_prefix}:"
+    local _stderr_prefix="${_opt_log_prefix}:"
+    if [ $_opt_stdname = yes ]; then
+        _stdout_prefix="${_opt_log_prefix} <stdout>:"
+        _stderr_prefix="${_opt_log_prefix} <stderr>:"
+    fi
+
+    if [ $_opt_print = yes ]; then
+        nef_log "Running:" "$@"
+    fi
+    _last_test_output=$(
+        {
+            # thanks to http://stackoverflow.com/questions/9112979/pipe-stdout-and-stderr-to-two-different-processes-in-shell-script
+            {
+                "$@" 2>&3 | nef_log_pipe --stdout -v "$_stdout_prefix" >&4
+                # This is tricky: we print FAILURE=<code> to send it back to main (sub)shell
+                local _status=${PIPESTATUS[0]}
+                if [ $_status -ne 0 ]; then
+                    echo "FAILURE=$_status;" >&4
+                fi
+            } 3>&1 1>&2 | nef_log_pipe -v "$_stderr_prefix"
+        }  4>&1
+    )
+
+    # The trick
+    local _line;
+    _line=$(echo "$_last_test_output" | tail -n 1 | grep "^FAILURE=");
+    if [ $? -eq 0 ]; then
+        local _status=$(echo $_line | sed -r 's/^FAILURE=([-0-9]);/\1/')
+        nef_fatal "command failed with status $_status:" "$@"
+    fi
+
+    return 0
+}
+
+nef_fatal() {
+    nef_log "FATAL ERROR: $*"
+    exit 1;
+}
+
+nef_fatal_usage() {
+    local _msg="$1"
+    if [ "x$1" = x ]; then
+        _msg="USAGE ERROR"
+    else
+        _msg="USAGE ERROR: $*"
+    fi
+    nef_log "$_msg"
+    nef_log "type ${nef_command_callname} --help for command usage"
+    # echo
+    # nef_show_usage
+    exit 1;
+}
+
+nef_show_usage() {
+    [ "$(type -t nef_command_usage)" = "function" ] \
+        || nef_fatal "function 'nef_command_usage' not defined by script $0"
+
+    nef_command_usage
+}
+
+# Usage: nef_confim "question?" && command...
+nef_confirm()
+{
+    # Inspired from http://stackoverflow.com/questions/1885525/how-do-i-prompt-a-user-for-confirmation-in-bash-script
+    read -p "$1 [y/n] ? " -n 1 -r
+    echo >&2
+    [[ $REPLY =~ ^[Yy]$ ]]
+}
+
+nef_command_merge_env() {
+    local _path=/etc/default/$nef_command_name
+
+    if [ -f $_path ]; then
+        nef_log -v "loading defaults from $_path"
+        . $_path
+    fi
+}
+
+# Usage: nef_show_help [command]
+nef_show_help() {
+    local _command="$1"
+    local _keep_showing=0
+    local _prefix1="usage: $nef_command_callname"
+    local _prefix2=$(echo "$_prefix1" | sed "s/./ /g")
+
+    if test -z "$_command"; then
+        cmd_description=$(cat $(which "$0") | head -n 3 | tail -n 1 | sed -r 's/[^-]*- ?//')
+        cat <<-EOF
+	$nef_command_callname - $cmd_description
+
+	$_prefix1 [--verbose] [--debug-verbose] [--help]
+	$_prefix2 <command> [<args>]
+
+	EOF
+    fi
+    grep -E ^# "$(which "$0")" | (
+        while read; do
+            local _command_name=
+            local _line=$(echo "$REPLY" | sed -r 's/^# ?//')
+
+            if test "$_keep_showing" -ne 0; then
+                if echo "$REPLY" | grep -qE "^##"; then
+                    _keep_showing=0
+                    exit
+                else
+                    echo "$_line"
+                    continue
+                fi
+            fi
+            if echo "$_line" | grep -qE "^command:"; then
+                full=$(echo "$_line" | sed 's/^command: //')
+                _command_name=$(echo "$full" | sed 's/ .*//')
+                _command_args=$(echo "$full" | sed -r 's/^[^ ]+ ?//')
+
+                if test -n "$_command"; then
+                    if test "$_command" = "$_command_name"; then
+                        echo "usage: $nef_command_callname $_command $_command_args"
+                        [ $_usage -eq 0 ] && _keep_showing=1
+                    fi
+                else
+                    echo -e "    $_command_name\t$_command_args"
+                fi
+            fi
+            if echo "$REPLY" | grep -qE "^### "; then
+                if test -z "$_command"; then
+                    full=$(echo "$REPLY" | sed 's/^### //')
+                    echo
+                    echo "  $full"
+                    echo
+                fi
+            fi
+
+        done
+    )
+    echo
+}

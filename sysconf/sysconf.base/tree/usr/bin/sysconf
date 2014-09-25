@@ -1,0 +1,595 @@
+#!/bin/bash
+#
+# SYSCONF tool - helper to manage sysconf repositories and get them live on an UNIX system
+#
+# Started on 2014-01 by JF Gigand <jf@geonef.fr>
+#
+# Initialize sysconf like this:
+#   curl https://raw.githubusercontent.com/geonef/sysconf.base/master/tree/usr/bin/sysconf | bash -s init https://github.com/geonef/sysconf.base.git compile install update
+#
+# Or, from any repository:
+#   git archive -v --remote={GIT_REPOSITORY_URL} HEAD:tree/usr/bin sysconf | tar xO | bash -s init {GIT_REPOSITORY_URL}/{SYSCONF_PROFILE_REPOS_DIR} compile install update
+#
+#
+# To remove installed symlinks:
+#   find /usr/bin/ /etc/ -type l -lname '/sysconf/*' | xargs rm
+
+nef_command_name=sysconf
+
+######################################################################
+## FUNCTIONS
+
+show_usage()
+{
+    cat >&2 <<EOF
+Usage: $0 [-options] <command> [-options] [command_args]
+
+Where <command> is one of:
+
+    init GIT_REPOSITORY_PATH
+        Download config and recursive dependencies, which
+        are listed in the "deps" file located in the repository root dir.
+
+        Suppose GIT_REPOSITORY_PATH is sysconf:desktop.ubuntu
+            and SYSCONF_PATH is /sysconf, we will have:
+            /sysconf/sysconf.desktop.ubuntu : GIT repository clone
+            /sysconf/sysconf.desktop : GIT repository clone
+            /sysconf/sysconf.base : GIT repository clone
+            /sysconf/actual -> directory with file "deps" containing a single line:
+                base
+            /sysconf/repository_path : a file containing "sysconf:", which is used
+                for cloning missing deps, where "sysconf:" would get concatenated
+                with the dep and ".git"
+
+    fetch
+        Pull given config's repository from remote and its deps.
+        If CONFIG is not provided, the actual root config is used.
+
+    compile
+        (re)populates the general "compiled" directory with symlinks
+        from CONFIG and its deps (CONFIG has precedence).
+        If CONFIG is not provided, the actual root config is used.
+
+    install
+        Install the compiled directory content to target
+
+    update
+        Execute updates for given config and recursive deps
+
+    setup GIT_REPOSITORY_PATH
+        Performs: init, compile, install, update
+
+    pull
+        Performs: fetch, compile, install, update
+
+    add file_1 [file_2 [file_N]]
+	Move given (real) files to CONFIG's tree and replace them with a symlink.
+	This is a frequently used command as we move/"standardize" config/misc
+	files from real location (like /etc) to a sysconf repository
+
+    cmd command [command_args]
+	Execute given command in CONFIG's dir and recursive dep dirs.
+
+    list [pattern]
+        List compiled symlinks, optionally filtering pattern through 'grep'.
+
+Options are:
+    -c CONFIG
+        Use given configuration. Defaults to 'actual', which is usually a symlink
+        to the root configuration initialized with the command 'init'.
+
+Environment variables:
+    SYSCONF_PATH       path of config dir, defaults to '/sysconf'
+
+Typical conf repository include:
+
+    /deps
+        List of configs we depend on, one by line, comments not allowed.
+        Just bare names, will be append to our repository path's basedir
+        to form the path of dep repository.
+
+    /update.sh
+        Script executed for installing/updating the conf on target dir.
+
+EOF
+}
+
+# Execute 'git', apt-get installing it if needed and make return error fatal
+safe_git()
+{
+    which git >/dev/null || apt-get install git
+    nef_log "$PWD > git $@"
+    git $@ || nef_fatal "$0: git command failed (fatal)"
+}
+
+local_cp()
+{
+    (
+        if [ "$verbose" = "1" ]; then
+            cp -v $@
+        else
+            cp $@
+        fi
+    ) 2>&1 | nef_log_pipe
+}
+
+# Util: create $confpath if needed, fix attributes and 'cd' into it
+chdir_confpath()
+{
+    # In case $confpath does not yet exist
+    [ -d "$confpath" ] || {
+	mkdir "$confpath" && nef_log "Created confpath: $confpath"
+	target="/"
+	echo $target >$confpath/target
+
+	chgrp -R adm $confpath
+	chmod -R ug+w $confpath
+	find $confpath -type d -exec chmod g+s {} \;
+	nef_log "Fixed recursive owner group and permissions on: $confpath"
+    }
+
+    cd $confpath
+}
+
+# Util: remove $confpath/compiled and mkdir again
+reinit_compiled_dir()
+{
+    compiled=$confpath/compiled
+    [ -d $compiled ] && rm -rf $compiled
+    mkdir $compiled
+}
+
+# Used by commands "init" and "setup"
+init_sysconf()
+{
+    repos="$1"
+    [ "$repos" = "" ] && {
+	show_usage
+	exit -1
+    }
+
+    name=`echo "$repos" | sed 's/.*[:/]//' | sed 's/\.git$//'`
+    repos_base=`echo "$repos" | sed -E 's/(.*[:/]).*$/\1/'`
+    nef_log "*** Initializing $confpath with GIT repository: $repos"
+    nef_log "*** repos_base=$repos_base repository=$name"
+
+    chdir_confpath
+    echo $repos_base >repository_base
+
+    if test -h actual; then
+        # Legacy: "actual" as a symlink
+        rm actual
+        ln -s $name actual
+        nef_log "Updated symlink 'actual' to point to: $name"
+    elif test -d actual; then
+        nef_log "'./actual' exists already, that's fine"
+    else
+        mkdir actual
+        echo $name >actual/deps
+    fi
+
+    fetch_conf "$name" # "$repos_base"
+}
+
+# function usage: fetch_conf CONFIG [REPOSITORY_BASE]
+fetch_conf()
+{
+    local config="$1"
+    chdir_confpath
+
+    [ -d $config ] && {
+	cd $config
+        if test -d .git; then
+            nef_log "*** Updating $confpath/$config"
+	    safe_git pull
+        else
+            nef_log "*** Not a git repository (but it's okay): $confpath/$config"
+        fi
+    } || {
+	# repos_base="$2"
+	# [ "$repos_base" = "" ] && {
+	#     cd actual
+	#     repos=`git remote show origin | grep Fetch | sed 's/  Fetch URL: //'`
+	#     repos_base=`dirname $repos`
+	#     cd -
+	# }
+        repos_base=$(cat $confpath/repository_base)
+	repos_path=${repos_base}${config}.git
+	nef_log "*** Installing $confpath/$config from repository $repos_path"
+	safe_git clone $repos_path
+	cd $config
+    }
+
+    if test -d .git; then
+        safe_git submodule init
+        safe_git submodule update --recursive
+    fi
+
+    cd $confpath
+
+    for dep in `cat $config/deps`; do
+	fetch_conf $dep
+    done
+}
+
+# function usage: fetch_conf CONFIG [REPOSITORY_BASE]
+compile_conf()
+{
+    (
+        # 'sysconf_compiled_confs' contains the names of the confs
+        # that have been compiled already, to avoid some deps
+        # to be processed multiple times
+        sysconf_compiled_confs=()
+        compile_conf_rec "$@"
+        nef_log "Compilation done in: $confpath/compiled"
+    )
+}
+
+# function usage: fetch_conf CONFIG [REPOSITORY_BASE]
+compile_conf_rec()
+{
+    local config="$1"
+    chdir_confpath
+
+    for conf in "${sysconf_compiled_confs[@]}"; do
+        [ "$config" = "$conf" ] && return
+    done
+    sysconf_compiled_confs=(${sysconf_compiled_confs[@]} $config)
+
+    [ -d $config/tree ] && {
+	nef_log "Merging: $confpath/$config/tree/*"
+	local_cp -sr $confpath/$config/tree/* $confpath/compiled/
+    } || {
+	nef_log "Ignoring tree-less conf: $config"
+    }
+    for dep in `cat $config/deps`; do
+	compile_conf_rec $dep
+    done
+}
+
+# Used by commands "install" and "update"
+install_compiled()
+{
+    nef_log "Installing files from: $confpath/compiled"
+    local_cp -r $confpath/compiled/* / || nef_fatal "copy failed"
+}
+
+update_system_from_conf()
+{
+    (
+        # 'sysconf_updated_confs' contains the names of the confs
+        # that have been compiled already, to avoid some deps
+        # to be processed multiple times
+        sysconf_updated_confs=()
+        update_system_from_conf_rec "$@"
+    )
+}
+
+update_system_from_conf_rec()
+{
+    local config="$1"
+    chdir_confpath
+
+    for conf in "${sysconf_updated_confs[@]}"; do
+        [ "$config" = "$conf" ] && return
+    done
+    sysconf_updated_confs=(${sysconf_updated_confs[@]} $config)
+
+    for dep in `cat $config/deps`; do
+	update_system_from_conf_rec $dep
+    done
+
+    cd $confpath/$config || nef_fatal "missing directory (or mispelled dep): $config"
+
+    [ -r ./install.sh ] && {
+	nef_log "Executing updates for config: $config"
+        (
+            NEF_LOG_PREFIX="$nef_command_name: $config"
+            . /usr/share/nef-common/shell-command || exit 2
+            . ./install.sh 2>&1 | nef_log_pipe
+        )
+    }
+}
+
+# function usage: add_file CONFIG FILE_PATH
+add_file()
+{
+    local config="$1"
+    local file="$2"
+    local target="$confpath/$config/tree$file"
+
+    [ -f "$file" ] || nef_fatal "warning: arg is not a regular file: $file"
+    [ -r "$target" ] && nef_fatal "warning: repository path already exists: $target"
+
+    dir=$(dirname "$target")
+    mkdir -p "$dir" && mv "$file" "$target" && ln -s "$target" "$file" && {
+	ls -l "$file"
+        nef_log
+        nef_log "Undo command:"
+        nef_log "  mv $target $file"
+    } || {
+	nef_log "warning: error moving '$file' to '$target' and replacing with symlink"
+    }
+}
+
+# function usage: run_cmd CONFIG COMMAND [arg1 [... argn]]
+run_cmd()
+{
+    local config="$1"
+    shift
+    local command="$1"
+    shift
+    chdir_confpath
+    cd $config
+    nef_log "*** In conf dir '$PWD' running: $command $@"
+    "$command" "$@"
+
+    for dep in `cat deps`; do
+	run_cmd "$dep" "$command" "$@"
+    done
+}
+
+sysconf_apt-get()
+{
+    options=""
+
+    if test "$arg_yes" = 1; then
+        # -o Dpkg::Options::='--force-confdef'
+        options="$options --assume-yes"
+    fi
+
+    [ "$verbose" = "1" ] || options="$options --quiet"
+    nef_log "Running: apt-get $options $@"
+    apt-get $options $@
+}
+
+sysconf_require_packages()
+{
+    local _packages=
+
+    for pkg in "$@"; do
+        dpkg -l | grep -q " $pkg[: ]" || _packages="$_packages $pkg"
+    done
+
+    if [ -n "$_packages" ]; then
+        export DEBIAN_FRONTEND=noninteractive
+        # sysconf_apt-get install --yes --no-upgrade $_packages
+        sysconf_apt-get install --yes -o Dpkg::Options::=--force-confdef --no-upgrade $_packages
+    fi
+}
+
+######################################################################
+# FROM sysconf.base library
+# https://github.com/geonef/sysconf.base/blob/master/tree/usr/share/nef-common/shell-command
+
+nef_log() {
+    [ "x$NEF_LOG_FILE" = x ] && NEF_LOG_FILE="$LOG_FILE" # Legacy compat
+
+    declare _opt_verbose=no
+    declare _opt_debug=no
+    declare _opt_prepend=""
+
+    while [ "$1" != "" ]; do
+
+        case "$1" in
+            -p | --prepend) _opt_prepend="$2"; shift; shift ;;
+            -v | --verbose) _opt_verbose=yes; shift ;;
+            -d | --debug) _opt_debug=yes; shift ;;
+            -*) nef_log "nef_log(): bad option: $1"; shift ;;
+            *) break ;;
+        esac
+
+    done
+
+    [ $_opt_verbose = yes -a x$nef_opt_show_verbose = xno ] && return 0
+    [ $_opt_debug = yes -a x$nef_opt_show_debug = xno ] && return 0
+
+    local txt="$*"
+    local line="$*"
+    local prefix="$NEF_LOG_PREFIX"
+    [ -z "$prefix" ] && prefix="$nef_command_name"
+
+    if [ "x$NEF_LOG_DATE" = xyes ]; then
+        date="`date +'%Y-%m-%d %H:%M:%S:%N' | sed -E 's/.{6}$//'`"
+        prefix="$prefix $date"
+    fi
+
+    line="$prefix: ${_opt_prepend}${line}"
+
+    if [ "$NEF_LOG_FILE" = "" ]; then
+        echo "$line" >&2
+    else
+        echo "$line" | tee -a $LOG_FILE >&2
+    fi
+}
+
+nef_log_pipe() {
+    local _opt_stdout=no
+
+    while true; do
+        case "$1" in
+            --stdout) _opt_stdout=yes; shift ;;
+            *) break ;;
+        esac
+    done
+
+    while read; do
+        nef_log "$@" "$REPLY"
+        [ $_opt_stdout = yes ] && echo "$REPLY"
+    done
+    return 0
+}
+
+nef_fatal() {
+    nef_log "FATAL ERROR: $*"
+    exit 1;
+}
+
+
+######################################################################
+
+self=$(cd `dirname "${BASH_SOURCE[0]}"` && pwd)/`basename "${BASH_SOURCE[0]}"`
+confpath="$SYSCONF_PATH"
+
+if test "$confpath" = ""; then
+    #confpath=`dirname "$self"`
+    confpath=/sysconf
+fi
+
+export PATH=/sbin:/usr/sbin:$PATH
+export LANGUAGE=C LC_ALL=C
+
+# Options
+config=actual
+verbose=0
+arg_yes=0
+
+
+nef_read_args()
+{
+    OPTIND=1
+    # message "command line is: $@"
+    while getopts "vyc:" opt "$@"; do
+        case $opt in
+            c)
+                # echo "-c was triggered, Parameter: $OPTARG" >&2
+                config="$OPTARG"
+                nef_log -v "Using config: $config [$confpath/$config]"
+                ;;
+            y)
+                arg_yes=1
+                ;;
+            v)
+                verbose=1
+                ;;
+            :)
+                echo "Missing argument to option '$OPTARG'"
+                exit 1
+                ;;
+            \?)
+                echo "Invalid option: -$OPTARG" >&2
+                ;;
+        esac
+    done
+    # echo "Setting OPTIND from $OPTIND to" $((OPTIND-1))
+}
+
+nef_read_args "$@"
+shift $((OPTIND-1))
+
+[ "$1" = "" ] && {
+    echo "error: command missing"
+    show_usage
+    exit -1
+}
+
+while [ "$1" != "" ]; do
+    command="$1"
+    shift
+    # nef_log -v "*** COMMAND: $command"
+
+    case "$command" in
+        init)
+            nef_read_args "$@"
+            shift $((OPTIND-1))
+
+	    init_sysconf "$1"
+            shift
+            ;;
+        fetch)
+            nef_read_args "$@"
+            shift $((OPTIND-1))
+
+	    fetch_conf "$config"
+	    ;;
+        compile)
+            nef_read_args "$@"
+            shift $((OPTIND-1))
+
+	    reinit_compiled_dir
+	    compile_conf "$config"
+	    ;;
+        install)
+            nef_read_args "$@"
+            shift $((OPTIND-1))
+
+	    install_compiled
+	    ;;
+        update)
+            nef_read_args "$@"
+            shift $((OPTIND-1))
+
+	    update_system_from_conf "$config"
+	    ;;
+        pull)
+            nef_read_args "$@"
+            shift $((OPTIND-1))
+
+	    fetch_conf "$config"
+	    reinit_compiled_dir
+	    compile_conf "$config"
+	    install_compiled
+	    update_system_from_conf "$config"
+	    ;;
+        setup)
+            nef_read_args "$@"
+            shift $((OPTIND-1))
+            url="$1"
+            shift
+
+	    init_sysconf "$url" && {
+	        setup_config=`readlink $confpath/actual`
+	        nef_log "setup: working on conf: $setup_config"
+
+	        reinit_compiled_dir && \
+		    compile_conf "$setup_config" && \
+		    install_compiled && \
+		    nef_log "setup: done"
+	    }
+	    ;;
+        add)
+            nef_read_args "$@"
+            shift $((OPTIND-1))
+
+	    while test "$1" != ""; do
+	        add_file $config "$1"
+	        shift
+	    done
+	    ;;
+        cmd)
+            nef_read_args "$@"
+            shift $((OPTIND-1))
+
+	    command="$1"
+	    shift
+
+	    run_cmd "$config" "$command" "$@"
+            shift $#
+	    ;;
+        list)
+            nef_read_args "$@"
+            shift $((OPTIND-1))
+            filter="$1"
+            shift $#
+
+            chdir_confpath
+            command="find compiled/"
+            if [ "x$filter" = "x" ]; then
+                $command
+            else
+                $command | grep "$filter"
+            fi
+            ;;
+        help)
+	    show_usage
+	    ;;
+        *)
+            nef_log "bad command: '$command'"
+	    show_usage
+	    exit -1
+	    ;;
+    esac
+
+done
+
+exit 0
