@@ -1,0 +1,6 @@
+#!/bin/bash
+#
+# GITTED EXPORT: SYSCONF -> GIT files
+#
+
+GITTED_WORKING_TREE=/sysconf exec /usr/share/gitted/export/git-subtree "$@"

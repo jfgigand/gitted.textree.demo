@@ -1,0 +1,69 @@
+#!/bin/bash
+#
+# MySQL data import
+#
+. /usr/share/gitted/import.init.bash || exit 2
+
+[ -z "$GITTED_DATA_PATH" ] && nef_fatal "missing variable: GITTED_DATA_PATH"
+[ -z "$GITTED_MYSQL_DATABASE" ] && nef_fatal "missing variable: GITTED_MYSQL_DATABASE"
+[ -z "$GITTED_MYSQL_USER" ] && GITTED_MYSQL_USER=postgres
+
+state_ref=$(gitted_state_ref_name mysql)
+state_commit=$(git show-ref -s $state_ref)
+state_tree=
+if [ -n "$state_commit" ]; then
+    state_tree="$(git ls-tree $state_ref $GITTED_DATA_PATH)"
+fi
+
+if [ "$state_tree" != "$(git ls-tree $gitted_new_commit $GITTED_DATA_PATH)" ]; then
+
+    nef_log "MySQL data has changed. Importing..."
+
+    # (re-)create database
+    # if echo "SHOW DATABASES;" | mysql $GITTED_MYSQL_DATABASE | head -n +2 \
+    #     | grep -q $GITTED_MYSQL_DATABASE; then
+
+    #     nef_log "Database '$GITTED_MYSQL_DATABASE' exists: dropping..."
+    #     service mysql restart >&2
+    #     echo "DROP DATABASE $GITTED_MYSQL_DATABASES" | mysql \
+    #         || nef_fatal "could not drop database: $GITTED_MYSQL_DATABASE"
+    # fi
+
+    echo "CREATE DATABASE IF NOT EXISTS $GITTED_MYSQL_DATABASE;" | mysql
+    tables=$(echo "SHOW TABLES;" | mysql $GITTED_MYSQL_DATABASE | tail -n +2)
+    for table in $tables; do
+        echo "DROP TABLE $table" | mysql $GITTED_MYSQL_DATABASE
+    done
+
+
+    # Read entries and import tables' structure and data
+    git ls-tree $gitted_new_commit $GITTED_DATA_PATH/ | (
+        data_uuids=
+        declare -A data_names
+        while read mode type uuid path; do
+            file=$(basename $path)
+            if echo "$file" | grep -q '\.sql$'; then
+                git cat-file -p $uuid | mysql $GITTED_MYSQL_DATABASE | nef_log_pipe "${file}:"
+            elif echo "$file" | grep -q '\.txt$'; then
+                data_uuids="$data_uuids $uuid"
+                data_names[$uuid]=$file
+            else
+                nef_log "Ignoring file: $GITTED_DATA_PATH/$file"
+            fi
+        done
+        _dir=$(mktemp -d)
+        chgrp mysql $_dir
+        chmod g+rwx $_dir
+        for uuid in $data_uuids; do
+            git cat-file -p $uuid >$_dir/${data_names[$uuid]}
+        done
+        mysqlimport $GITTED_MYSQL_DATABASE $_dir/* || nef_fatal "mysqlimport failed"
+        rm -rf $_dir
+    )
+
+    nef_log "MySQL import done."
+    git update-ref -m "import MySQL data from $gitted_new_commit" $state_ref $gitted_new_commit
+
+else
+    nef_log "No change for path: $GITTED_DATA_PATH"
+fi

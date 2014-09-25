@@ -1,0 +1,117 @@
+#!/bin/bash
+#
+# GITTED EXPORT: PostgreSQL -> GIT files
+#
+#
+# GITTED_POSTGRESQL_CSV_FIELDS
+
+. /usr/share/gitted/export.init.bash || exit 2
+
+[ -z "$GITTED_DATA_PATH" ] && nef_fatal "missing variable: GITTED_DATA_PATH"
+[ -z "$GITTED_POSTGRESQL_DATABASE" ] && nef_fatal "missing variable: GITTED_POSTGRESQL_DATABASE"
+
+# Allowed GITTED_POSTGRESQL_FORMAT values: sql
+[ -z "$GITTED_POSTGRESQL_FORMAT" ] && GITTED_POSTGRESQL_FORMAT=sql
+
+
+state_ref=$(gitted_state_ref_name postgresql)
+
+# 0=has new ops
+new_ops=0
+
+_psql() {
+    sudo -u postgres psql \
+        -X \
+        --pset border=0 --pset format=unaligned --pset tuples_only \
+        "$@" \
+        || nef_fatal "psql failed with status $? with args: $*"
+}
+
+_pg_dump() {
+    sudo -u postgres pg_dump "$@"
+}
+
+oplog_last_time=$(echo "select tup_inserted, tup_updated, tup_deleted, stats_reset from pg_stat_database where datname = '${GITTED_POSTGRESQL_DATABASE}' limit 1" | _psql)
+
+# nef_log "oplog_last_time = $oplog_last_time"
+oplog_last_time_path=/var/run/gitted.$GITTED_GIT_BRANCH.postgresql.oplog_last_time
+
+if [ -f $oplog_last_time_path -a -n "$oplog_last_time" ]; then
+    [ "$(cat $oplog_last_time_path)" = "$oplog_last_time" ] \
+        && new_ops=1 # which means "no new op" (0=true)
+fi
+
+if [ $new_ops -eq 0 ]; then
+
+    if [ -n "$gitted_last_commit" ]; then
+        git read-tree $gitted_last_commit || nef_fatal "git read-tree failed"
+    fi
+
+
+    case "$GITTED_POSTGRESQL_FORMAT" in
+        sql)
+            tables=$(echo "\dt" | _psql -d $GITTED_POSTGRESQL_DATABASE | cut -d\| -f2)
+            mkdir -p $GIT_WORK_TREE/$GITTED_DATA_PATH
+            _common_opts="--format=plain --blobs"
+            _pg_dump $GITTED_POSTGRESQL_DATABASE --exclude-table='*'  $_common_opts \
+                > "$GIT_WORK_TREE/$GITTED_DATA_PATH/database.sql" \
+                || nef_fatal "pg_dump failed for database objects (tables excluded)"
+            nef_log "Exported database objects (tables excluded) into: database.sql"
+
+            for table in $tables; do
+                # Schema
+                _pg_dump $GITTED_POSTGRESQL_DATABASE --table=$table --schema-only $_common_opts \
+                    > "$GIT_WORK_TREE/$GITTED_DATA_PATH/table.$table.schema.sql" \
+                    || nef_fatal "pg_dump failed for table (schema): $table"
+
+                # Data
+                _pg_dump $GITTED_POSTGRESQL_DATABASE --table=$table --data-only $_common_opts \
+                    > "$GIT_WORK_TREE/$GITTED_DATA_PATH/table.$table.data.sql" \
+                    || nef_fatal "pg_dump failed for table (data): $table"
+
+                nef_log "Exported table: $table"
+            done
+            ;;
+        *)
+            nef_fatal "invalid value for GITTED_POSTGRESQL_FORMAT: $GITTED_POSTGRESQL_FORMAT"
+            ;;
+    esac
+
+    unchanged=0
+
+    if [ $(ls $GIT_WORK_TREE/$GITTED_DATA_PATH/ | wc -l) -ne 0 ]; then
+        git update-index --add --remove $(git ls-files $GITTED_DATA_PATH/) $GIT_WORK_TREE/$GITTED_DATA_PATH/* || nef_fatal "git update-index failed"
+
+        if [ -n "$gitted_last_commit" ]; then
+            git diff-index --cached --quiet $gitted_last_commit
+            unchanged=$?
+        else
+            unchanged=1
+        fi
+    fi
+
+    if [ $unchanged -eq 0 ]; then
+        nef_log "No change in PostgreSQL data. Nothing to commit."
+    else
+        tree=$(git write-tree)
+
+        if [ -n "$gitted_last_commit" ]; then
+            parent_opt="-p $gitted_last_commit"
+        fi
+        commit=$(echo "Auto commit for PostgreSQL on LXC container $(cat /etc/hostname) at $(date)" \
+            | git commit-tree $tree $parent_opt)
+
+        [ -n "$commit" ] || nef_fatal "git commit-tree failed"
+        nef_log "Committed PostgreSQL update: $commit"
+
+        message="after PostgreSQL sync commit"
+        git update-ref -m "$message" refs/heads/$GITTED_GIT_BRANCH $commit $gitted_last_commit
+        git update-ref -m "$message" $state_ref $commit $gitted_last_commit
+    fi
+
+    # we save the last op time, as it's synced, whether or not it needed a commit
+    echo "$oplog_last_time" >$oplog_last_time_path
+
+else
+    nef_log "No change in DB '$GITTED_POSTGRESQL_DATABASE' since last sync [$oplog_last_time]"
+fi

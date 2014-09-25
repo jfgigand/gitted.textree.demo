@@ -1,0 +1,576 @@
+#!/bin/bash
+#
+# gitted-client - both an "ext" git-remote and a helper to register it
+#
+# HISTORY
+#   20140818 first version by JF Gigand <jf@geonef.fr>
+
+nef_command_name=gitted-client
+# . $(dirname $0)/../share/nef-common/shell-command || exit 2
+gitted_executive_treeish=
+
+######################################################################
+# COMMANDS
+
+# command: register
+#
+# Copy the gitted-client to the .git
+##
+gitted_command_register() {
+    local _argv=()
+
+    while [ -n "$1" ]; do
+        case "$1" in
+            -h|--help) gitted_command_help init; return ;;
+            -*) gitted_eval_common_option "$1"; shift ;;
+            *) _argv=("${_argv[@]}" "$1"); shift ;;
+        esac
+    done
+
+    [ "${#_argv[@]}" -gt 0 ] && nef_fatal_usage_command init "too many arguments"
+
+    gitted_check_env
+    nef_log "Copying $0 to GIT dir..."
+    gitted_ensure_script_in_git_dir
+}
+
+# command: add <name>
+#
+# Register a GIT ext remote for the LXC container <name>
+#
+# The container will be created the first time the handle-remote-protocol command
+# is called (by git push/fetch/pull, etc.).
+# If the container exists already, it is used.
+##
+gitted_command_add() {
+    local _argv=()
+
+    while [ -n "$1" ]; do
+        case "$1" in
+            -h|--help) gitted_command_help add; return ;;
+            -*) gitted_eval_common_option "$1"; shift ;;
+            *) _argv=("${_argv[@]}" "$1"); shift ;;
+        esac
+    done
+
+    [ "${#_argv[@]}" -lt 1 ] && nef_fatal_usage_command add "missing argument(s)"
+    [ "${#_argv[@]}" -gt 1 ] && nef_fatal_usage_command add "too many arguments"
+
+    local _name="${_argv[0]}"
+
+    gitted_ensure_script_in_git_dir
+
+    if git remote | grep -q "^${_name} "; then
+        echo "Remote '$_name' exists already:"
+        git remote -v | grep "^${_name} "
+    else
+        echo "Remote '$_name' does not exists. Creating..."
+        args=(git remote add $_name "ext::$gitted_git_dir/$nef_command_name handle-remote-protocol $_name %S")
+        echo ">" "${args[@]}"
+        "${args[@]}"
+    fi
+
+    local _branch_name=$(git symbolic-ref --short HEAD 2>/dev/null)
+    if [ -n "$_branch_name" ]; then
+        _branch_name="$_branch_name # or another branch"
+    else
+        _branch_name="<branch>"
+    fi
+    echo
+    echo "You may now run:"
+    echo -e "\tgit push $_name $_branch_name"
+    echo -e "\tgit pull $_name $_branch_name"
+}
+
+# command: handle-remote-protocol <name> <remote-command>
+#
+# Handler for the "ext::" git remote
+##
+gitted_command_handle-remote-protocol() {
+    local _argv=()
+
+    while [ -n "$1" ]; do
+        case "$1" in
+            -h|--help) gitted_command_help handle-remote-protocol; return ;;
+            -*) gitted_eval_common_option "$1"; shift ;;
+            *) _argv=("${_argv[@]}" "$1"); shift ;;
+        esac
+    done
+
+    [ "${#_argv[@]}" -lt 2 ] && nef_fatal_usage_command handle-remote-protocol "missing argument(s)"
+    [ "${#_argv[@]}" -gt 2 ] && nef_fatal_usage_command handle-remote-protocol "too many arguments"
+
+    local _name="${_argv[0]}"
+    local _command="${_argv[1]}"
+
+    gitted_ensure_container_running "$_name"
+
+    nef_log "Forwarding command '$_command' to gitted in container '$_name'..."
+    lxc-attach --clear-env -n $_name -- gitted git-remote-command $_command
+    local _ip=$(lxc-info -n $_name -i)
+    nef_log "Container IP address: $_ip"
+}
+
+# command: list
+#
+# Handler for the "ext::" git remote
+##
+gitted_command_list() {
+    local _argv=()
+
+    while [ -n "$1" ]; do
+        case "$1" in
+            -h|--help) gitted_command_help list; return ;;
+            -*) gitted_eval_common_option "$1"; shift ;;
+            *) _argv=("${_argv[@]}" "$1"); shift ;;
+        esac
+    done
+
+    [ "${#_argv[@]}" -gt 0 ] && nef_fatal_usage_command list "too many arguments"
+
+    gitted_list_gitted_remotes
+}
+
+# command: refs [remote] [remote2] ...
+#
+# Handler for the "ext::" git remote
+##
+gitted_command_refs() {
+    local _argv=()
+
+    while [ -n "$1" ]; do
+        case "$1" in
+            -h|--help) gitted_command_help refs; return ;;
+            -*) gitted_eval_common_option "$1"; shift ;;
+            *) _argv=("${_argv[@]}" "$1"); shift ;;
+        esac
+    done
+
+    if [ "${#_argv[@]}" -eq 0 ]; then
+        _argv=( $(gitted_list_gitted_remotes) )
+    fi
+
+    if [ "${#_argv[@]}" -eq 0 ]; then
+        nef_log "There are no gitted remotes. You can create one by running:"
+        nef_log "  $0 add <name>"
+    else
+        git show-ref | nef_log_pipe "(local):"
+        for _name in "${_argv[@]}"; do
+            # gitted_ensure_container_running "$_name"
+
+            state=$(lxc-info -sHn $_name)
+            if [ "$state" = RUNNING ]; then
+                lxc-attach --clear-env -n $_name -- gitted git show-ref | nef_log_pipe "${_name}:"
+            else
+                nef_log "${_name}: (container state is ${state}, not showing refs)"
+            fi
+        done
+    fi
+}
+
+# command: remote-git <name> [--] <git-command> [arg] ...
+#
+##
+gitted_command_remote-git() {
+    local _argv=()
+
+    while [ -n "$1" ]; do
+        case "$1" in
+            -h|--help) gitted_command_help remote-git; return ;;
+            --) shift; _argv=("${_argv[@]}" "$@"); shift $# ;;
+            -*) gitted_eval_common_option "$1"; shift ;;
+            *) _argv=("${_argv[@]}" "$1"); shift ;;
+        esac
+    done
+
+    [ "${#_argv[@]}" -lt 2 ] && nef_fatal_usage_command remote-git "missing argument(s)"
+
+    local _name="${_argv[0]}"
+    unset _argv[0]
+
+    state=$(lxc-info -sHn $_name)
+    [ "$state" != RUNNING ] && nef_fatal "${_name}: container '${_name}' is ${state} (must be running)"
+    nef_log "Running 'gitted git ${_argv[@]}' in container ${_name}:"
+    lxc-attach --clear-env -n $_name -- gitted git -- ${_argv[@]} | nef_log_pipe "${_name}:"
+    nef_log "Command returned status ${PIPESTATUS[0]}"
+}
+
+# command: help [command]
+#
+# Print information about command usage.
+#
+# With no argument, a list of commands is printed.
+##
+gitted_command_help() {
+    local _argv=()
+    local _command=
+    local _usage=0
+
+    while [ -n "$1" ]; do
+        case "$1" in
+            --usage) _usage=1; shift ;;
+            -h|--help) gitted_command_help help; return ;;
+            -*) gitted_eval_common_option "$1"; shift ;;
+            *) _command="$1"; break ;;
+        esac
+    done
+
+    nef_show_help $_command
+}
+
+######################################################################
+# FUNCTIONALITY
+
+gitted_ensure_script_in_git_dir() {
+    cp $0 $gitted_git_dir/$nef_command_name \
+        || nef_fatal "could not copy $0 to $gitted_git_dir/$nef_command_name"
+    commit=$(git rev-parse HEAD)
+    sed -i -r "s/^(gitted_executive_treeish)=(.*)/\1=$commit/" $gitted_git_dir/$nef_command_name
+    # cp $(dirname $0)/gitted-server-setup $gitted_git_dir/
+}
+
+gitted_check_env() {
+    if ! which lxc-create >/dev/null; then
+        nef_log "ERROR: LXC is not installed on your system (lxc-create missing)"
+        nef_log "On a Debian/Ubuntu system, it can be installed with the command:"
+        echo >&2
+        echo "sudo apt-get install lxc" >&2
+        exit 3
+    fi
+    if [ $(id -u) -eq 0 ]; then
+        nef_log "RUNNING AS ROOT! Notice: you can work as an unprivileged user as well."
+    else
+        # unprivileged mode -- thanks to https://www.stgraber.org/2014/01/17/lxc-1-0-unprivileged-containers/
+        user_name=$(id -un)
+        group_name=$(id -gn)
+        error=
+        if ! grep -q "^${user_name}:" /etc/subuid; then
+            error="User '$user_name' misses an entry in /etc/subuid"
+        elif ! grep -q "^${group_name}:" /etc/subgid; then
+            error="User '$user_name' misses an entry in /etc/subuid"
+        elif ! grep -q "^${user_name} " /etc/lxc/lxc-usernet; then
+            error="User '$user_name' misses an entry in /etc/lxc/lxc-usernet"
+        elif ! [ -f ~/.config/lxc/default.conf ]; then
+            error="Missing file '~/.config/lxc/default.conf' with 'id_map' declarations"
+        fi
+
+        if [ -n "$error" ]; then
+            nef_log "Error: $error"
+            nef_log "There are 4 files you need to update (only once) for LXC"
+            nef_log "to run properly as unpriviledged user '$user_name'."
+            nef_log ""
+            nef_log "You can fix them automatically with the commands below:"
+        cat <<MEOF >&2
+
+grep "^${user_name}:" /etc/subuid || sudo sh -c 'echo "${user_name}:100000:65536" >>/etc/subuid'
+grep "^${group_name}:" /etc/subgid || sudo sh -c 'echo "${group_name}:100000:65536" >>/etc/subgid'
+grep "^${user_name} " /etc/lxc/lxc-usernet || sudo sh -c 'echo "${user_name} veth lxcbr0 10" >>/etc/lxc/lxc-usernet'
+
+[ -d ~/.config/lxc ] || mkdir -p ~/.config/lxc
+[ -f ~/.config/lxc/default.conf ] || cat <<EOF >~/.config/lxc/default.conf
+lxc.network.type = veth
+lxc.network.link = lxcbr0
+lxc.network.flags = up
+lxc.network.hwaddr = 00:16:3e:xx:xx:xx
+lxc.id_map = u 0 100000 65536
+lxc.id_map = g 0 100000 65536
+EOF
+
+MEOF
+        exit 3
+        fi
+    fi
+
+}
+
+gitted_list_gitted_remotes() {
+    git remote -v \
+        | grep -E 'ext::.*/gitted-client +handle-remote-protocol .*(fetch)' \
+        | sed -r 's/.*gitted-client +handle-remote-protocol +([^ ]+) +.*/\1/'
+}
+
+# usage: gitted_ensure_container_running <name>
+gitted_ensure_container_running() {
+    _name="$1"
+    state=$(lxc-info -sHn $_name | head -n 1)
+
+    nef_log "Container '$_name' is '$state'"
+
+    if [ -z "$state" ]; then
+        # [ -d "$engine_dir" ] || nef_fatal "container cannot be created as engine dir is not available: $engine_dir"
+        nef_log "LXC container '$_name' does not exist. Creating..."
+        lxc-create -n $_name -t download -- -d debian -r wheezy -a amd64 >&2 \
+            || nef_fatal "lxc-create failed"
+        state=STOPPED
+
+        if [ $(id -u) -ne 0 ]; then
+            # fix hwaddr to avoid redundant 00:16:3e:ff:ff:ff
+            # local a=$(printf "%x"
+            local a=$((RANDOM % 256))
+            local b=$((RANDOM % 256))
+            local c=$((RANDOM % 256))
+            a=$(printf "%x" $a)
+            b=$(printf "%x" $b)
+            c=$(printf "%x" $c)
+            local _newmac=00:16:3e:$a:$b:$c
+            local _configpath=~/.local/share/lxc/$_name/config
+
+            sed -i s/00:16:3e:ff:ff:ff/$_newmac/g $_configpath \
+                && nef_log "Fixed $_configpath with MAC address: $_newmac"
+        fi
+    fi
+
+    if [ $state = STOPPED ]; then
+        nef_log "Starting container in daemon mode..."
+        lxc-start -n $_name -d
+        nef_log "Waiting for a few seconds to let it be ready..."
+        sleep 3
+
+
+        state=$(lxc-info -sHn $_name | head -n 1)
+        [ $state = RUNNING ] || nef_fatal "lxc-start failed; HINT: if you have just installed LXC, just reboot your system and retry..."
+
+        network_ready=
+        while [ "$network_ready" != ok ]; do
+            ip=$(lxc-info -n $_name -i)
+            if [ "$ip" = "" ]; then
+                nef_log "Waiting for the network..."
+                sleep 3
+                network_ready=retry
+            else
+                nef_log "Got IP: $ip"
+                network_ready=ok
+            fi
+        done
+
+    fi
+
+    if ! lxc-attach --clear-env -n $_name -- test -f /GITTED_CUSTOM_APPLIED; then
+        gitted_container_apply_customs $_name
+        lxc-attach --clear-env -n $_name -- touch /GITTED_CUSTOM_APPLIED
+    fi
+
+    lxc-attach --clear-env -n $_name -- test -d /sysconf || {
+        nef_log "sysconf is not defined. extracting from commit $gitted_executive_treeish"
+        git archive $gitted_executive_treeish sysconf/ \
+            | lxc-attach --clear-env -n $_name -- tar x -C / >&2
+        lxc-attach --clear-env -n $_name -- \
+            /sysconf/sysconf.base/tree/usr/bin/sysconf compile install update \
+            2>&1 | nef_log_pipe "sysconf@$_name:"
+    }
+}
+
+gitted_container_apply_customs() {
+    local _name=$1
+
+    # SSH public key
+    if [ -f ~/.ssh/id_dsa.pub ]; then
+        nef_log "copy ~/.ssh/id_dsa.pub to ${_name}:/root/.ssh/authorized_keys's "
+        cat ~/.ssh/id_dsa.pub \
+            | lxc-attach --clear-env -n $_name \
+            -- sh -c 'mkdir -p /root/.ssh && cat >/root/.ssh/authorized_keys'
+    fi
+
+    # TODO: set GIT config for user.name and user.email
+}
+
+######################################################################
+# COMMAND LINE & RUN
+
+gitted_eval_common_option() {
+    case "$1" in
+        -v | --verbose) nef_opt_show_verbose=yes; shift ;;
+        -vv | --debug-verbose) nef_opt_show_verbose=yes; nef_opt_show_debug=yes; shift ;;
+        -h | --help) nef_show_usage; exit 0 ;;
+        -*) nef_fatal "bad option: $1, use -h for usage information" ;;
+    esac
+}
+
+nef_fatal_usage_command() {
+    local _command="$1"; shift
+
+    nef_log "$_command usage error: $*"
+    echo >&2
+    gitted_command_help --usage "$_command" >&2
+    exit 1
+}
+
+gitted_parse_cmdline() {
+    nef_command_merge_env
+    nef_command_init_options
+
+    gitted_command_argv=()
+
+    while [ -n "$1" ]; do
+
+        case "$1" in
+            -*) gitted_eval_common_option "$1"; shift ;;
+            *) gitted_command_argv=("$@"); break ;;
+        esac
+
+    done
+
+    [ -z "${gitted_command_argv[0]}" ] && gitted_command_argv=(help)
+    gitted_git_dir=$(git rev-parse --git-dir)
+    echo "$gitted_git_dir" | grep -q / || {
+        gitted_git_dir=$PWD/$gitted_git_dir
+    }
+    [ -z "$gitted_git_dir" ] && nef_fatal "not in GIT directory or working tree"
+
+
+    # Run command
+    gitted_command_function_name="gitted_command_${gitted_command_argv[0]}"
+    unset gitted_command_argv[0]
+    $gitted_command_function_name "${gitted_command_argv[@]}" \
+        || nef_fatal "command ${gitted_command_argv[0]} failed with status $?"
+    nef_log -v "Command returned successfully."
+}
+
+######################################################################
+# FROM sysconf.base library
+# https://github.com/geonef/sysconf.base/blob/master/tree/usr/share/nef-common/shell-command
+
+nef_log() {
+    [ "x$NEF_LOG_FILE" = x ] && NEF_LOG_FILE="$LOG_FILE" # Legacy compat
+
+    declare _opt_verbose=no
+    declare _opt_debug=no
+    declare _opt_prepend=""
+
+    while [ "$1" != "" ]; do
+
+        case "$1" in
+            -p | --prepend) _opt_prepend="$2"; shift; shift ;;
+            -v | --verbose) _opt_verbose=yes; shift ;;
+            -d | --debug) _opt_debug=yes; shift ;;
+            -*) nef_log "nef_log(): bad option: $1"; shift ;;
+            *) break ;;
+        esac
+
+    done
+
+    [ $_opt_verbose = yes -a x$nef_opt_show_verbose = xno ] && return 0
+    [ $_opt_debug = yes -a x$nef_opt_show_debug = xno ] && return 0
+
+    local txt="$*"
+    local line="$*"
+    local prefix=$(basename $0)
+
+    if [ "x$NEF_LOG_DATE" = xyes ]; then
+        date="`date +'%Y-%m-%d %H:%M:%S:%N' | sed -E 's/.{6}$//'`"
+        prefix="$prefix $date"
+    fi
+
+    line="$prefix: ${_opt_prepend}${line}"
+
+    if [ "$NEF_LOG_FILE" = "" ]; then
+        echo "$line" >&2
+    else
+        echo "$line" | tee -a $LOG_FILE >&2
+    fi
+}
+
+nef_log_pipe() {
+    local _opt_stdout=no
+
+    while true; do
+        case "$1" in
+            --stdout) _opt_stdout=yes; shift ;;
+            *) break ;;
+        esac
+    done
+
+    while read; do
+        nef_log "$@" "$REPLY"
+        [ $_opt_stdout = yes ] && echo "$REPLY"
+    done
+    return 0
+}
+
+nef_fatal() {
+    nef_log "FATAL ERROR: $*"
+    exit 1;
+}
+
+nef_command_merge_env() {
+    local _path=/etc/default/$nef_command_name
+
+    if [ -f $_path ]; then
+        nef_log -v "loading defaults from $_path"
+        . $_path
+    fi
+}
+
+nef_command_init_options()
+{
+    nef_command_path=$0
+    nef_command_callname=$(basename $nef_command_path)
+    [ "x$nef_command_name" = x ] && nef_command_name=$nef_command_callname
+
+    nef_opt_show_verbose=no
+    nef_opt_show_debug=no
+}
+
+# Usage: nef_show_help [command]
+nef_show_help() {
+    local _command="$1"
+    local _keep_showing=0
+    local _prefix1="usage: $nef_command_callname"
+    local _prefix2=$(echo "$_prefix1" | sed "s/./ /g")
+
+    if test -z "$_command"; then
+        cmd_description=$(cat $(which "$0") | head -n 3 | tail -n 1 | sed -r 's/[^-]*- ?//')
+        cat <<-EOF
+	$nef_command_callname - $cmd_description
+
+	$_prefix1 [--verbose] [--debug-verbose] [--help]
+	$_prefix2 <command> [<args>]
+
+	EOF
+    fi
+    grep -E ^# "$(which "$0")" | (
+        while read; do
+            local _command_name=
+            local _line=$(echo "$REPLY" | sed -r 's/^# ?//')
+
+            if test "$_keep_showing" -ne 0; then
+                if echo "$REPLY" | grep -qE "^##"; then
+                    _keep_showing=0
+                    exit
+                else
+                    echo "$_line"
+                    continue
+                fi
+            fi
+            if echo "$_line" | grep -qE "^command:"; then
+                full=$(echo "$_line" | sed 's/^command: //')
+                _command_name=$(echo "$full" | sed 's/ .*//')
+                _command_args=$(echo "$full" | sed -r 's/^[^ ]+ ?//')
+
+                if test -n "$_command"; then
+                    if test "$_command" = "$_command_name"; then
+                        echo "usage: $nef_command_callname $_command $_command_args"
+                        [ $_usage -eq 0 ] && _keep_showing=1
+                    fi
+                else
+                    echo -e "    $_command_name\t$_command_args"
+                fi
+            fi
+            if echo "$REPLY" | grep -qE "^### "; then
+                if test -z "$_command"; then
+                    full=$(echo "$REPLY" | sed 's/^### //')
+                    echo
+                    echo "  $full"
+                    echo
+                fi
+            fi
+
+        done
+    )
+    echo
+}
+
+
+######################################################################
+
+gitted_parse_cmdline "$@"

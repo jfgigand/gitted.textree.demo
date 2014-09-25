@@ -1,0 +1,15 @@
+#!/bin/bash
+#
+# GITTED IMPORT: GIT files -> SYSCONF
+#
+
+# exec /usr/share/gitted/git-working-tree "$@"
+
+
+GITTED_WORKING_TREE=/sysconf
+
+POST_UPDATE() {
+    sysconf compile install update | nef_log_pipe "sysconf:"
+}
+
+. /usr/share/gitted/import/git-subtree "$@"

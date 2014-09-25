@@ -1,0 +1,67 @@
+#!/bin/bash
+#
+# PostgreSQL data import
+#
+. /usr/share/gitted/import.init.bash || exit 2
+
+[ -z "$GITTED_DATA_PATH" ] && nef_fatal "missing variable: GITTED_DATA_PATH"
+[ -z "$GITTED_POSTGRESQL_DATABASE" ] && nef_fatal "missing variable: GITTED_POSTGRESQL_DATABASE"
+[ -z "$GITTED_POSTGRESQL_USER" ] && GITTED_POSTGRESQL_USER=postgres
+
+_psql() {
+    sudo -u postgres psql \
+        -X \
+        --pset border=0 --pset format=unaligned --pset tuples_only \
+        "$@" \
+        || nef_fatal "psql failed with status $? with args: $*"
+}
+
+state_ref=$(gitted_state_ref_name postgresql)
+state_commit=$(git show-ref -s $state_ref)
+state_tree=
+if [ -n "$state_commit" ]; then
+    state_tree="$(git ls-tree $state_ref $GITTED_DATA_PATH)"
+fi
+
+if [ "$state_tree" != "$(git ls-tree $gitted_new_commit $GITTED_DATA_PATH)" ]; then
+
+    nef_log "PostgreSQL data has changed. Importing..."
+
+    # (re-)create database
+    if echo '\l' | _psql | grep -q $GITTED_POSTGRESQL_DATABASE; then
+        nef_log "Database '$GITTED_POSTGRESQL_DATABASE' exists: dropping..."
+        service postgresql restart >&2
+        echo "DROP DATABASE $GITTED_POSTGRESQL_DATABASE" | sudo -u postgres psql
+    fi
+    echo "CREATE DATABASE $GITTED_POSTGRESQL_DATABASE TEMPLATE template0 OWNER $GITTED_POSTGRESQL_USER ENCODING 'UTF-8';" | _psql
+
+    # Execute general SQL
+    uuid=$(git ls-tree $gitted_new_commit $GITTED_DATA_PATH/database.sql | sed -r 's/.* blob ([^\t]+).*/\1/')
+    if [ -n "$uuid" ]; then
+        git cat-file -p $uuid | _psql -d $GITTED_POSTGRESQL_DATABASE 2>&1 | nef_log_pipe "database.sql:"
+    fi
+
+    # Read entries and import tables' structure and data
+    git ls-tree $gitted_new_commit $GITTED_DATA_PATH/ | (
+        data_uuids=
+        declare -A data_names
+        while read mode type uuid path; do
+            file=$(basename $path)
+            if echo "$file" | grep -q '^table\..*\.schema\.sql$'; then
+                git cat-file -p $uuid | _psql -d $GITTED_POSTGRESQL_DATABASE | nef_log_pipe "${file}:"
+            elif echo "$file" | grep -q '^table\..*\.data\.sql$'; then
+                data_uuids="$data_uuids $uuid"
+                data_names[$uuid]=$file
+            fi
+        done
+        for uuid in $data_uuids; do
+            git cat-file -p $uuid | _psql -d $GITTED_POSTGRESQL_DATABASE | nef_log_pipe "${data_names[$uuid]}:"
+        done
+    )
+
+    nef_log "PostgreSQL import done."
+    git update-ref -m "import PostgreSQL data from $gitted_new_commit" $state_ref $gitted_new_commit
+
+else
+    nef_log "No change for path: $GITTED_DATA_PATH"
+fi

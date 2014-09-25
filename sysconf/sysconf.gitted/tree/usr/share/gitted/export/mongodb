@@ -1,0 +1,127 @@
+#!/bin/bash
+#
+# GITTED EXPORT: MongoDB -> GIT files
+#
+#
+# GITTED_MONGODB_CSV_FIELDS
+
+. /usr/share/gitted/export.init.bash || exit 2
+
+[ -z "$GITTED_DATA_PATH" ] && nef_fatal "missing variable: GITTED_DATA_PATH"
+[ -z "$GITTED_MONGODB_DATABASE" ] && nef_fatal "missing variable: GITTED_MONGODB_DATABASE"
+
+# Allowed GITTED_MONGODB_FORMAT values: bson, json, csv
+[ -z "$GITTED_MONGODB_FORMAT" ] && GITTED_MONGODB_FORMAT=json
+
+
+_mongoclient() {
+    mongo --quiet | head -n -1 | tail -n +2
+}
+
+
+state_ref=$(gitted_state_ref_name mongodb)
+
+# 0=has new ops
+new_ops=0
+
+oplog_last_time=$(echo -e "use local\ndb.oplog.rs.find({op:{\$ne:\"n\"},ns:/^${GITTED_MONGODB_DATABASE}\\./}).sort({\"\$natural\" : -1})[0]" | _mongoclient | grep '"h" :' | sed -r 's/.*NumberLong\("([^"]+)"\).*/\1/')
+
+# nef_log "oplog_last_time = $oplog_last_time"
+oplog_last_time_path=/var/run/gitted.$GITTED_GIT_BRANCH.mongodb.oplog_last_time
+
+if [ -f $oplog_last_time_path -a -n "$oplog_last_time" ]; then
+    [ "$(cat $oplog_last_time_path)" = "$oplog_last_time" ] \
+        && new_ops=1 # which means "no new op" (0=true)
+fi
+
+if [ $new_ops -eq 0 ]; then
+
+    # flush journal to disk
+    echo -e "use admin\ndb.runCommand({fsync:true})" | _mongoclient >/dev/null
+
+    if [ -n "$gitted_last_commit" ]; then
+        git read-tree $gitted_last_commit || nef_fatal "git read-tree failed"
+    fi
+
+
+    case "$GITTED_MONGODB_FORMAT" in
+        json|csv)
+            collections=$(echo -e "use ${GITTED_MONGODB_DATABASE}\nshow collections" | _mongoclient)
+            mkdir -p $GIT_WORK_TREE/$GITTED_DATA_PATH
+            _opts=
+            if [ $GITTED_MONGODB_FORMAT = csv ]; then
+                [ -n "$GITTED_MONGODB_CSV_FIELDS" ] \
+                    || nef_fatal "GITTED_MONGODB_CSV_FIELDS is mandatory when GITTED_MONGODB_FORMAT=csv"
+                _opts="--csv $GITTED_MONGODB_CSV_FIELDS"
+            fi
+            for collection in $collections; do
+                _path="$GIT_WORK_TREE/$GITTED_DATA_PATH/$collection.json"
+                errs=$(
+                    mongoexport \
+                        --db $GITTED_MONGODB_DATABASE --collection $collection $_opts \
+                        2>&1 >"$_path"
+                )
+                _status=$?
+                if [ $_status -eq 0 ]; then
+                    _count=$(wc -l "$_path" | sed 's/ .*//')
+                    if [ $_count -eq 0 ]; then
+                        nef_log "Ignoring empty collection: $collection"
+                        rm "$_path"
+                    else
+                        nef_log "Exported $_count JSON lines out of collection: $collection"
+                    fi
+                else
+                    echo "$errs" | nef_log_pipe "mongoexport:"
+                    nef_fatal "mongoexport failed with status $_status"
+                fi
+            done
+            ;;
+        bson)
+            mongodump --db $GITTED_MONGODB_DATABASE --out /tmp/mongodb_dump 2>&1 \
+                | nef_log_pipe "mongodump:" || nef_fatal "MongoDB export failed"
+
+            mv /tmp/mongodb_dump/$GITTED_MONGODB_DATABASE $GIT_WORK_TREE/$GITTED_DATA_PATH
+            ;;
+        *)
+            nef_fatal "invalid value for GITTED_MONGODB_FORMAT: $GITTED_MONGODB_FORMAT"
+            ;;
+    esac
+
+    unchanged=0
+
+    if [ $(ls $GIT_WORK_TREE/$GITTED_DATA_PATH/ | wc -l) -ne 0 ]; then
+        git update-index --add $GIT_WORK_TREE/$GITTED_DATA_PATH/* || nef_fatal "git update-index failed"
+
+        if [ -n "$gitted_last_commit" ]; then
+            git diff-index --cached --quiet $gitted_last_commit
+            unchanged=$?
+        else
+            unchanged=1
+        fi
+    fi
+
+    if [ $unchanged -eq 0 ]; then
+        nef_log "No change in MongoDB data. Nothing to commit."
+    else
+        tree=$(git write-tree)
+
+        if [ -n "$gitted_last_commit" ]; then
+            parent_opt="-p $gitted_last_commit"
+        fi
+        commit=$(echo "Auto commit for MongoDB on LXC container $(cat /etc/hostname) at $(date)" \
+            | git commit-tree $tree $parent_opt)
+
+        [ -n "$commit" ] || nef_fatal "git commit-tree failed"
+        nef_log "Committed MongoDB update: $commit"
+
+        message="after MongoDB sync commit"
+        git update-ref -m "$message" refs/heads/$GITTED_GIT_BRANCH $commit $gitted_last_commit
+        git update-ref -m "$message" $state_ref $commit $gitted_last_commit
+    fi
+
+    # we save the last op time, as it's synced, whether or not it needed a commit
+    echo "$oplog_last_time" >$oplog_last_time_path
+
+else
+    nef_log "No change in DB '$GITTED_MONGODB_DATABASE' since last sync [$oplog_last_time]"
+fi

@@ -1,0 +1,83 @@
+#!/bin/bash
+#
+# GITTED IMPORT: /local.repository.git subtree -> local $GITTED_WORKING_TREE
+#
+
+# exec /usr/share/gitted/git-working-tree "$@"
+
+. /usr/share/gitted/import.init.bash || exit 2
+
+[ -z "$GITTED_DATA_PATH" ] && nef_fatal "missing variable: GITTED_DATA_PATH"
+[ -z "$GITTED_WORKING_TREE" ] && nef_fatal "missing variable: GITTED_WORKING_TREE"
+
+state_ref=$(gitted_state_ref_name $GITTED_WORKING_TREE)
+
+if [ "$(git ls-tree $state_ref $GITTED_DATA_PATH 2>/dev/null)" \
+    != "$(git ls-tree $gitted_new_commit $GITTED_DATA_PATH)" ]; then
+
+    nef_log "$GITTED_DATA_PATH data has changed in repository. Updating local: $GITTED_WORKING_TREE"
+
+    (
+        local_git_dir=$GIT_DIR
+        unset GIT_DIR
+        unset GIT_WORK_TREE
+        unset GIT_INDEX
+
+        if [ ! -d $GITTED_WORKING_TREE/.git ]; then
+            nef_log "$GITTED_WORKING_TREE is not a GIT repository. Initializing..."
+            mkdir -p $GITTED_WORKING_TREE
+            cd $GITTED_WORKING_TREE
+            git init . || nef_fatal "git init failed"
+            # git config --local receive.denyCurrentBranch ignore || nef_fatal "git config failed"
+
+            fresh=yes
+        fi
+
+        # Clone a non-bare repository our of the central local one, to please git-subtree
+        temp_branch=$(date +T%s$RANDOM)
+        clone_path=/tmp/$temp_branch
+        nef_log "cloning to $clone_path"
+        git clone $local_git_dir $clone_path || nef_fatal "git clone failed"
+        cd $clone_path
+        git checkout $gitted_new_commit
+
+        # We push to a new branch, then checkout from there and let GIT refuse it
+        # if there are uncommitted changes that conflict with the checkout.
+
+        # not using --rejoin, to avoid creating a (weird) non-explicit commit
+        git subtree split -P $GITTED_DATA_PATH -b $temp_branch || nef_fatal "git subtree failed"
+        git push $GITTED_WORKING_TREE $temp_branch || nef_fatal "git push failed"
+
+        cd $GITTED_WORKING_TREE
+        rm -rf $clone_path
+
+        _opts=
+        # [ "$fresh" = yes ] && _opts="--force"
+        # git checkout $_opts $temp_branch || nef_fatal "git checkout failed"
+        git reset --hard $temp_branch || nef_fatal "git reset failed"
+        # if [ "$fresh" = yes ]; then
+        #     git checkout --force $temp_branch || nef_fatal "git checkout failed"
+        # else
+        #     git checkout $temp_branch || nef_fatal "git checkout failed"
+        #     git branch -D master || nef_fatal
+        # fi
+        # git checkout -b master
+        git branch -D $temp_branch
+
+        if declare -f POST_UPDATE >/dev/null; then
+            POST_UPDATE
+        fi
+
+    ) || nef_fatal "sub-command failed"
+
+
+    # git subtree split -P $GITTED_DATA_PATH $gitted_new_commit
+    # [ -n "$sysconf_new_commit" ] || nef_fatal "git subtree failed"
+    # git push $sysconf_new_commit /sysconf
+
+    nef_log "$GITTED_DATA_PATH data has been imported and applied."
+    git update-ref -m "import $GITTED_WORKING_TREE data from $gitted_new_commit" $state_ref $gitted_new_commit
+
+else
+    nef_log "No change for path: $GITTED_DATA_PATH"
+fi

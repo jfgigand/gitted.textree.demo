@@ -1,0 +1,191 @@
+#!/bin/bash
+#
+# gitted - manage the life of an LXC container through git push/fetch
+#
+# HISTORY
+#   20140818 first version by JF Gigand <jf@geonef.fr>
+
+nef_command_name=gitted
+. $(dirname $0)/../share/nef-common/shell-command || exit 2
+
+
+######################################################################
+# DEFAULTS AND FUNCTIONS
+
+# Path of local GIT repository
+export GIT_DIR=/local.repository.git
+
+
+######################################################################
+# COMMANDS
+
+# command: help [command]
+#
+# Print information about command usage.
+#
+# With no argument, a list of commands is printed.
+##
+gitted_command_help() {
+    local _argv=()
+    local _command=
+    local _usage=0
+
+    while [ -n "$1" ]; do
+        case "$1" in
+            --usage) _usage=1; shift ;;
+            -h) gitted_command_help help; return ;;
+            -*) gitted_eval_common_option "$1"; shift ;;
+            *) _command="$1"; break ;;
+        esac
+    done
+
+    nef_show_help $_command
+}
+
+# command: git-remote-command <git-command>
+#
+# Forward the command and manage import/export if git-receive-pack or git-upload-pack
+#
+##
+gitted_command_git-remote-command() {
+    local _argv=()
+    local _command=
+    local _usage=0
+
+    while [ -n "$1" ]; do
+        case "$1" in
+            --usage) _usage=1; shift ;;
+            -h) gitted_command_help help; return ;;
+            -*) gitted_eval_common_option "$1"; shift ;;
+            *) _command="$1"; break ;;
+        esac
+    done
+
+    gitted_run_hooks pre-git
+    gitted_run_git_script export
+    gitted_run_hooks pre-git-command
+
+    $_command $GIT_DIR
+
+    gitted_run_hooks post-git-command
+    gitted_run_git_script import
+    gitted_run_hooks post-git
+}
+
+# command: git <git-command>
+#
+# Execute the given GIT command on the local repository
+#
+# (mainly for debugging/ingo purposes)
+##
+gitted_command_git() {
+    local _argv=()
+    local _command=
+    local _usage=0
+    local _argv=()
+
+    while [ -n "$1" ]; do
+        case "$1" in
+            --usage) _usage=1; shift ;;
+            -h) gitted_command_help help; return ;;
+            --) shift; _argv=("${_argv[@]}" "$@"); shift $# ;;
+            -*) gitted_eval_common_option "$1"; shift ;;
+            *) _argv=("${_argv[@]}" "$1"); shift ;;
+        esac
+    done
+
+    [ "${#_argv[@]}" -lt 1 ] && nef_fatal_usage_command remote "missing argument(s)"
+
+    cd $GIT_DIR
+    git "${_argv[@]}"
+}
+
+# command: git <git-command>
+#
+# Execute the given GIT command on the local repository
+#
+# (mainly for debugging/ingo purposes)
+##
+gitted_command_git() {
+    local _argv=()
+    local _command=
+    local _usage=0
+    local _argv=()
+
+    while [ -n "$1" ]; do
+        case "$1" in
+            --usage) _usage=1; shift ;;
+            -h) gitted_command_help help; return ;;
+            --) shift; _argv=("${_argv[@]}" "$@"); shift $# ;;
+            -*) gitted_eval_common_option "$1"; shift ;;
+            *) _argv=("${_argv[@]}" "$1"); shift ;;
+        esac
+    done
+
+    [ "${#_argv[@]}" -lt 1 ] && nef_fatal_usage_command remote "missing argument(s)"
+
+    cd $GIT_DIR
+    git "${_argv[@]}"
+}
+
+######################################################################
+# INTERNAL FUNCTIONALITY
+
+# usage: gitted_run_git_script { import | export }
+gitted_run_git_script() {
+    op=$1
+    for script in /etc/gitted/sync/*.$op; do
+        name=$(basename $script)
+        export GITTED_GIT_BRANCH=$(echo $name | sed 's/\..*//')
+        $script 2>&1 | nef_log_pipe "<$name>"
+    done
+}
+
+# usage: gitted_run_hooks <hook-name>
+gitted_run_hooks() {
+    local _name=$1
+    local _dir=/etc/gitted/hook/${_name}.d
+
+    if [ -d $_dir ]; then
+        for hook in $(find $_dir -executable -and -not -type d); do
+            $hook | nef_log_pipe "${hook}:"
+        done
+    fi
+}
+
+
+######################################################################
+# COMMAND LINE & RUN
+
+gitted_eval_common_option() {
+    case "$1" in
+        -v | --verbose) nef_opt_show_verbose=yes; shift ;;
+        -vv | --debug-verbose) nef_opt_show_verbose=yes; nef_opt_show_debug=yes; shift ;;
+        -h | --help) nef_show_usage; exit 0 ;;
+        -*) nef_fatal_usage "bad option: $1" ;;
+    esac
+}
+
+nef_command_merge_env
+nef_command_init_options
+
+gitted_command_argv=()
+
+while [ -n "$1" ]; do
+
+    case "$1" in
+        -*) gitted_eval_common_option "$1"; shift ;;
+        *) gitted_command_argv=("$@"); break ;;
+    esac
+
+done
+
+[ -z "${gitted_command_argv[0]}" ] && gitted_command_argv=(help)
+
+
+# Run command
+gitted_command_function_name="gitted_command_${gitted_command_argv[0]}"
+unset gitted_command_argv[0]
+$gitted_command_function_name "${gitted_command_argv[@]}" \
+    || nef_fatal "command ${gitted_command_argv[0]} returned status $?"
+nef_log -v "Command returned successfully."
